@@ -149,6 +149,7 @@ type TopkekMessage struct {
 	SourceMessageID int
 	Type            TopkekMessageType
 	Raw             tg.Message
+	CreatedAt       time.Time
 }
 
 func defaultChatSettings(chatID int64) ChatSettings {
@@ -165,4 +166,5 @@ type ChatSettings struct {
 	MinReactions         int   `db:"min_reactions"`
 	ImageHammingDistance int   `db:"image_hamming_distance"`
 	VideoHammingDistance int   `db:"video_hamming_distance"`
+	IsAutotopkek         bool  `db:"is_autotopkek"`
 }
