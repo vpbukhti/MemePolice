@@ -51,6 +51,11 @@ const (
 	OKEmoji           = "👌"
 )
 
+var ExcludeReactions = [2]string{
+	RepeatedMemeEmoji,
+	StaleMemeEmoji,
+}
+
 type Message struct {
 	MessageID      int
 	ChatID         int64
@@ -85,6 +90,7 @@ type Storage interface {
 	GetFirstMatchingMessageByVideoHash(ctx context.Context, chatID int64, videoHash, audioHash uint64, hdist int) (*Message, error)
 	GetLastMatchingMessageByVideoHash(ctx context.Context, chatID int64, videoHash, audioHash uint64, hdist int) (*Message, error)
 	GetMessage(ctx context.Context, chatID int64, messageID int) (*Message, error)
+	GetFirstChatMessageID(ctx context.Context, chatID int64) (int, error)
 
 	UpsertMessageReactions(ctx context.Context, msg MessageReactions) error
 	ListMessagesWithReactionCount(ctx context.Context, opts ListMessagesWithReactionCountOptions) ([]Message, error)
@@ -102,6 +108,7 @@ type Storage interface {
 
 	UpsertChatSettings(ctx context.Context, settings ChatSettings) error
 	GetChatSettings(ctx context.Context, chatID int64) (*ChatSettings, error)
+	ListChatsWithAutotopkek(ctx context.Context) ([]ChatSettings, error)
 }
 
 type StorageManager interface {
@@ -166,5 +173,5 @@ type ChatSettings struct {
 	MinReactions         int   `db:"min_reactions"`
 	ImageHammingDistance int   `db:"image_hamming_distance"`
 	VideoHammingDistance int   `db:"video_hamming_distance"`
-	IsAutotopkek         bool  `db:"is_autotopkek"`
+	IsAutoTopkek         bool  `db:"is_autotopkek"`
 }
