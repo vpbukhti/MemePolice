@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tg "github.com/OvyFlash/telegram-bot-api"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -65,9 +66,27 @@ func main() {
 	updateHandler := NewUpdateHandler(bot, psqlStorage, assets)
 
 	if *dumpDirPath == "" {
-		err := updateHandler.HandleUpdates(ctx)
+		eg, ectx := errgroup.WithContext(ctx)
+
+		eg.Go(func() error {
+			err := updateHandler.HandleUpdates(ectx)
+			if err != nil {
+				return fmt.Errorf("unable to handle updates: %w", err)
+			}
+			return nil
+		})
+
+		eg.Go(func() error {
+			err := updateHandler.RunAutotopkek(ectx)
+			if err != nil {
+				return fmt.Errorf("unable to run autotopkek: %w", err)
+			}
+			return nil
+		})
+
+		err := eg.Wait()
 		if err != nil {
-			slog.ErrorContext(ctx, "unable to handle updates", slog.String("err", err.Error()))
+			slog.ErrorContext(ctx, "unable to wait waitgroup", slog.String("err", err.Error()))
 		}
 	} else {
 		err := updateHandler.OneTimeMigration(ctx, *dumpDirPath, *migrationChatID)

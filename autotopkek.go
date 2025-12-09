@@ -10,7 +10,7 @@ import (
 
 func (r *UpdateHandler) RunAutotopkek(ctx context.Context) error {
 	// tic := time.NewTicker(time.Minute * 10)
-	tic := time.NewTicker(time.Minute * 2)
+	tic := time.NewTicker(time.Minute)
 	defer tic.Stop()
 
 	for {
@@ -19,11 +19,7 @@ func (r *UpdateHandler) RunAutotopkek(ctx context.Context) error {
 			return ctx.Err()
 
 		case now := <-tic.C:
-			// poor men's cron; runs +- every 10m of 09h
-			// if now.Hour() != 9 {
-			if now.Minute()%6 == 0 {
-				continue
-			}
+			slog.InfoContext(ctx, "running autotopkek")
 
 			err := r.runAutoTopkek(ctx, now)
 			if err != nil {
@@ -106,13 +102,16 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 	chat ChatSettings,
 	lastTopkek *Topkek,
 ) (int, error) {
+	if now.Minute()%3 != 0 {
+		return 0, errCreateAutoTopkekPreconditionsNotMet
+	}
 	if !chat.IsAutoTopkek {
 		return 0, errCreateAutoTopkekPreconditionsNotMet
 	}
 	if lastTopkek != nil &&
 		(lastTopkek.Status != TopkekStatusDone ||
 			// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
-			lastTopkek.CreatedAt.Truncate(time.Minute*6).After(now.Add(-time.Minute*6*2))) {
+			lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2))) {
 		return 0, errCreateAutoTopkekPreconditionsNotMet
 	}
 
@@ -185,13 +184,16 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 	chat ChatSettings,
 	lastTopkek *Topkek,
 ) error {
+	if now.Minute()%3 != 0 {
+		return errFinishAutoTopkekPreconditionsNotMet
+	}
 	if !chat.IsAutoTopkek {
 		return errFinishAutoTopkekPreconditionsNotMet
 	}
 	if lastTopkek != nil &&
 		(lastTopkek.Status != TopkekStatusStarted ||
 			// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
-			lastTopkek.CreatedAt.Truncate(time.Minute*6).After(now.Add(-time.Minute*6*2))) {
+			lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2))) {
 		return errFinishAutoTopkekPreconditionsNotMet
 	}
 
@@ -208,7 +210,7 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 	}
 
 	// if maxCreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour * 23)) {
-	if maxCreatedAt.Truncate(time.Minute * 6).After(now.Add(-time.Minute * 3)) {
+	if maxCreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute * 2)) {
 		return errFinishAutoTopkekPreconditionsNotMet
 	}
 
