@@ -177,6 +177,10 @@ func (r *UpdateHandler) createAutoTopkek(ctx context.Context, storage Storage,
 		return fmt.Errorf("unable to create topkek: %w", err)
 	}
 
+	slog.InfoContext(ctx, "autotopkek created",
+		slog.Int64("chat_id", chat.ChatID),
+	)
+
 	return nil
 }
 
@@ -245,6 +249,10 @@ func (r *UpdateHandler) finishAutoTopkek(ctx context.Context, storage Storage,
 	if err != nil {
 		return fmt.Errorf("unable to finish last topkek: %w", err)
 	}
+
+	slog.InfoContext(ctx, "autotopkek finished",
+		slog.Int64("chat_id", chat.ChatID),
+	)
 
 	lastTopkek, err = storage.GetLastTopkek(ctx, chat.ChatID)
 	if err != nil {
