@@ -21,7 +21,7 @@ func (r *UpdateHandler) RunAutotopkek(ctx context.Context) error {
 		case now := <-tic.C:
 			slog.InfoContext(ctx, "running autotopkek")
 
-			err := r.runAutoTopkek(ctx, now)
+			err := r.runAutoTopkek(ctx, now.UTC())
 			if err != nil {
 				slog.ErrorContext(ctx, "unable to run autotopkek", slog.String("error", err.Error()))
 			}
@@ -114,7 +114,7 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 	}
 	if lastTopkek != nil &&
 		// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
-		lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2)) {
+		lastTopkek.CreatedAt.UTC().Truncate(time.Minute).After(now.Add(-time.Minute*3*2)) {
 		return 0, fmt.Errorf("last topkek was too recent: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 
@@ -199,7 +199,7 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 	}
 	if lastTopkek != nil &&
 		// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
-		lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2)) {
+		lastTopkek.CreatedAt.UTC().Truncate(time.Minute).After(now.Add(-time.Minute*3*2)) {
 		return fmt.Errorf("topkek started to recently: %w", errFinishAutoTopkekPreconditionsNotMet)
 	}
 
@@ -216,11 +216,11 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 	}
 
 	// if maxCreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour * 23)) {
-	if latestMessageAt.Truncate(time.Minute).After(now.Add(-time.Minute * 2)) {
+	if latestMessageAt.UTC().Truncate(time.Minute).After(now.Add(-time.Minute * 2)) {
 		slog.InfoContext(ctx,
 			"latest topkek messages are too recent",
 			"latest_message_at",
-			latestMessageAt.Truncate(time.Minute),
+			latestMessageAt.UTC().Truncate(time.Minute),
 			"now",
 			now.Add(-time.Minute*2),
 		)
