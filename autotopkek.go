@@ -64,7 +64,7 @@ func (r *UpdateHandler) runAutoTopkekForChat(ctx context.Context, storage Storag
 			return fmt.Errorf("unable to create autotopkek: %w", err)
 		}
 		if err != nil && errors.Is(err, errCreateAutoTopkekPreconditionsNotMet) {
-			slog.WarnContext(ctx, "create autotopkek preconditions are not met",
+			slog.WarnContext(ctx, "unable to create autotopkek",
 				slog.String("err", err.Error()),
 				slog.Int64("chat_id", chat.ChatID),
 			)
@@ -74,10 +74,10 @@ func (r *UpdateHandler) runAutoTopkekForChat(ctx context.Context, storage Storag
 	case lastTopkek.Status == TopkekStatusStarted:
 		err := r.finishAutoTopkek(ctx, storage, now, chat, lastTopkek)
 		if err != nil && !errors.Is(err, errFinishAutoTopkekPreconditionsNotMet) {
-			return fmt.Errorf("unable to create autotopkek: %w", err)
+			return fmt.Errorf("unable to finish autotopkek: %w", err)
 		}
 		if err != nil && errors.Is(err, errFinishAutoTopkekPreconditionsNotMet) {
-			slog.WarnContext(ctx, "finish autotopkek preconditions are not met",
+			slog.WarnContext(ctx, "unable to finish autotopkek",
 				slog.String("err", err.Error()),
 				slog.Int64("chat_id", chat.ChatID),
 			)
@@ -155,7 +155,7 @@ func (r *UpdateHandler) createAutoTopkek(ctx context.Context, storage Storage,
 ) error {
 	startMessageID, err := r.checkCreateAutoTopkekPreconditions(ctx, storage, now, chat, lastTopkek)
 	if err != nil {
-		return fmt.Errorf("autotopkek preconditions are not met: %w", err)
+		return err
 	}
 
 	topkekMessage, err := r.sendMessage(ctx, chat.ChatID, "/topkek@"+r.bot.Self.UserName)
