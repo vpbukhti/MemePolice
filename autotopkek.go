@@ -208,15 +208,22 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 		return fmt.Errorf("unable to get topkek messages: %w", err)
 	}
 
-	maxCreatedAt := time.Time{}
+	latestMessageAt := time.Time{}
 	for _, message := range topkekMessages {
-		if message.CreatedAt.After(maxCreatedAt) {
-			maxCreatedAt = message.CreatedAt
+		if message.CreatedAt.After(latestMessageAt) {
+			latestMessageAt = message.CreatedAt
 		}
 	}
 
 	// if maxCreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour * 23)) {
-	if maxCreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute * 2)) {
+	if latestMessageAt.Truncate(time.Minute).After(now.Add(-time.Minute * 2)) {
+		slog.InfoContext(ctx,
+			"latest topkek messages are too recent",
+			"latest_message_at",
+			latestMessageAt.Truncate(time.Minute),
+			"now",
+			now.Add(-time.Minute*2),
+		)
 		return fmt.Errorf("latest topkek messages are too recent: %w", errFinishAutoTopkekPreconditionsNotMet)
 	}
 
