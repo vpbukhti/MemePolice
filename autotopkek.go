@@ -103,16 +103,19 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 	lastTopkek *Topkek,
 ) (int, error) {
 	if now.Minute()%3 != 0 {
-		return 0, errCreateAutoTopkekPreconditionsNotMet
+		return 0, fmt.Errorf("now is not the time: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 	if !chat.IsAutoTopkek {
-		return 0, errCreateAutoTopkekPreconditionsNotMet
+		return 0, fmt.Errorf("not autotopkek: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 	if lastTopkek != nil &&
-		(lastTopkek.Status != TopkekStatusDone ||
-			// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
-			lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2))) {
-		return 0, errCreateAutoTopkekPreconditionsNotMet
+		lastTopkek.Status != TopkekStatusDone {
+		return 0, fmt.Errorf("last topkek is not finished: %w", errCreateAutoTopkekPreconditionsNotMet)
+	}
+	if lastTopkek != nil &&
+		// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
+		lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2)) {
+		return 0, fmt.Errorf("last topkek was too recent: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 
 	listMessagesOpts := ListMessagesWithReactionCountOptions{
@@ -129,7 +132,7 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 		}
 		if err != nil && errors.Is(err, &ErrNotFound{}) {
 			// no messages in the chat, can't start the first topkek
-			return 0, errCreateAutoTopkekPreconditionsNotMet
+			return 0, fmt.Errorf("no source messages: %w", errCreateAutoTopkekPreconditionsNotMet)
 		}
 		listMessagesOpts.StartingMessageID = firstMessageID
 	}
@@ -139,7 +142,7 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 		return 0, fmt.Errorf("unable to find topkek source messages: %w", err)
 	}
 	if len(sourceMessages) < 2 {
-		return 0, errCreateAutoTopkekPreconditionsNotMet
+		return 0, fmt.Errorf("not enough source messages: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 
 	return listMessagesOpts.StartingMessageID, nil
@@ -185,16 +188,19 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 	lastTopkek *Topkek,
 ) error {
 	if now.Minute()%3 != 0 {
-		return errFinishAutoTopkekPreconditionsNotMet
+		return fmt.Errorf("now is not the time: %w", errFinishAutoTopkekPreconditionsNotMet)
 	}
 	if !chat.IsAutoTopkek {
-		return errFinishAutoTopkekPreconditionsNotMet
+		return fmt.Errorf("not autotopkek: %w", errFinishAutoTopkekPreconditionsNotMet)
 	}
 	if lastTopkek != nil &&
-		(lastTopkek.Status != TopkekStatusStarted ||
-			// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
-			lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2))) {
-		return errFinishAutoTopkekPreconditionsNotMet
+		lastTopkek.Status != TopkekStatusStarted {
+		return fmt.Errorf("topkek not started: %w", errFinishAutoTopkekPreconditionsNotMet)
+	}
+	if lastTopkek != nil &&
+		// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
+		lastTopkek.CreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute*3*2)) {
+		return fmt.Errorf("topkek started to recently: %w", errFinishAutoTopkekPreconditionsNotMet)
 	}
 
 	topkekMessages, err := storage.GetTopkekMessages(ctx, lastTopkek.ID)
@@ -211,7 +217,7 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 
 	// if maxCreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour * 23)) {
 	if maxCreatedAt.Truncate(time.Minute).After(now.Add(-time.Minute * 2)) {
-		return errFinishAutoTopkekPreconditionsNotMet
+		return fmt.Errorf("latest topkek messages are too recent: %w", errFinishAutoTopkekPreconditionsNotMet)
 	}
 
 	return nil
@@ -225,7 +231,7 @@ func (r *UpdateHandler) finishAutoTopkek(ctx context.Context, storage Storage,
 	// check if we should
 	err := r.checkFinishAutoTopkekPreconditions(ctx, storage, now, chat, lastTopkek)
 	if err != nil {
-		return fmt.Errorf("finish autotopkek preconditons are not met: %w", err)
+		return err
 	}
 
 	err = r.finishTopkek(ctx, storage, lastTopkek.ID)
