@@ -751,7 +751,7 @@ inner join lateral (
 	on mr.is_stale = 0
 		and mr.reacts >= $3
 where m.chat_id = $4
-	and m.id >= (select id from message where chat_id = $4 and message_id = $5)
+	and m.id >= (select min(id) from message where chat_id = $4 and message_id > $5)
 	and (m.image_hash is not null
 		or (m.video_video_hash is not null
 			and m.video_audio_hash is not null))
