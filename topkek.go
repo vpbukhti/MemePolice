@@ -248,7 +248,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 			SourceMessageID: msg.MessageID,
 			Type:            TopkekMessageTypeSrc,
 			Raw:             *msg,
-			CreatedAt:       time.Now(),
+			CreatedAt:       time.Now().UTC(),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to create topkek src message: %w", err)
@@ -291,7 +291,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 			SourceMessageID: srcs[i].MessageID,
 			Type:            TopkekMessageTypeDst,
 			Raw:             msg,
-			CreatedAt:       time.Now(),
+			CreatedAt:       time.Now().UTC(),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to create topkek dst message: %w", err)
@@ -309,7 +309,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 		MessageID: pollRes.MessageID,
 		Type:      TopkekMessageTypePoll,
 		Raw:       *pollRes,
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create topkek dst message: %w", err)
@@ -462,7 +462,7 @@ func (r *UpdateHandler) finishTopkek(ctx context.Context, storage Storage, topke
 		SourceMessageID: winnerMsg.SourceMessageID,
 		Type:            TopkekMessageTypeWinner,
 		Raw:             *winnerMsgRes,
-		CreatedAt:       time.Now(),
+		CreatedAt:       time.Now().UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to cerate topkek winner msg: %w", err)
