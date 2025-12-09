@@ -431,6 +431,12 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 			return fmt.Errorf("unable to handle chat settings video hamming distance: %w", err)
 		}
 
+	case "autotopkek":
+		err := r.handleChatSettingsAutoTopkek(ctx, storage, message)
+		if err != nil {
+			return fmt.Errorf("unable to handle chat settings autotopkek: %w", err)
+		}
+
 	case "help":
 		err := r.handleHelp(ctx, storage, message)
 		if err != nil {
@@ -810,6 +816,27 @@ func (r *UpdateHandler) handleChatSettingsVideoHammingDistamce(ctx context.Conte
 	}
 
 	chatSettings.VideoHammingDistance = max(0, dist)
+
+	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
+	if err != nil {
+		return fmt.Errorf("unable to update chat settings: %w", err)
+	}
+
+	err = r.sendOutChatSettings(ctx, storage, message.Chat.ID)
+	if err != nil {
+		return fmt.Errorf("unable to send out chat settings: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UpdateHandler) handleChatSettingsAutoTopkek(ctx context.Context, storage Storage, message *tg.Message) error {
+	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
+	if err != nil {
+		return fmt.Errorf("unable to get or create chat settings: %w", err)
+	}
+
+	chatSettings.IsAutoTopkek = !chatSettings.IsAutoTopkek
 
 	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
 	if err != nil {
