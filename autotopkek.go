@@ -9,7 +9,8 @@ import (
 )
 
 func (r *UpdateHandler) RunAutotopkek(ctx context.Context) error {
-	tic := time.NewTicker(time.Minute * 10)
+	// tic := time.NewTicker(time.Minute * 10)
+	tic := time.NewTicker(time.Minute * 2)
 	defer tic.Stop()
 
 	for {
@@ -19,7 +20,8 @@ func (r *UpdateHandler) RunAutotopkek(ctx context.Context) error {
 
 		case now := <-tic.C:
 			// poor men's cron; runs +- every 10m of 09h
-			if now.Hour() != 9 {
+			// if now.Hour() != 9 {
+			if now.Minute()%6 == 0 {
 				continue
 			}
 
@@ -109,7 +111,8 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 	}
 	if lastTopkek != nil &&
 		(lastTopkek.Status != TopkekStatusDone ||
-			lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
+			// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
+			lastTopkek.CreatedAt.Truncate(time.Minute*6).After(now.Add(-time.Minute*6*2))) {
 		return 0, errCreateAutoTopkekPreconditionsNotMet
 	}
 
@@ -187,7 +190,8 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 	}
 	if lastTopkek != nil &&
 		(lastTopkek.Status != TopkekStatusStarted ||
-			lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
+			// lastTopkek.CreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour*24*7))) {
+			lastTopkek.CreatedAt.Truncate(time.Minute*6).After(now.Add(-time.Minute*6*2))) {
 		return errFinishAutoTopkekPreconditionsNotMet
 	}
 
@@ -203,7 +207,8 @@ func (r *UpdateHandler) checkFinishAutoTopkekPreconditions(ctx context.Context, 
 		}
 	}
 
-	if maxCreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour * 23)) {
+	// if maxCreatedAt.Truncate(time.Hour).After(now.Add(-time.Hour * 23)) {
+	if maxCreatedAt.Truncate(time.Minute * 6).After(now.Add(-time.Minute * 3)) {
 		return errFinishAutoTopkekPreconditionsNotMet
 	}
 
