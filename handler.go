@@ -709,12 +709,12 @@ func (r *UpdateHandler) getOrCreateChatSettings(ctx context.Context, storage Sto
 
 func formatChatSettings(settings ChatSettings) string {
 	return fmt.Sprintf(`Настройки чата:
-* Минимум реакций для попадания в топкек: %d
 * Автотопкек: %v
-* Расстояние хэмминга для схожести изображений: %d
-* Расстояние хэмминга для схожести видео: %d`,
-		settings.MinReactions,
+* Порог реакций: %d
+* Порог схожести изображений: %d
+* Порог схожести видео: %d`,
 		settings.IsAutoTopkek,
+		settings.MinReactions,
 		settings.ImageHammingDistance,
 		settings.VideoHammingDistance,
 	)
