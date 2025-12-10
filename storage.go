@@ -346,6 +346,30 @@ where chat_id = $1
 	return messageFromDB(res[0])
 }
 
+func (r *storage) GetFirstChatMessageID(ctx context.Context, chatID int64) (int, error) {
+	var res []int
+
+	err := r.db.SelectContext(ctx, &res, `
+select message_id
+from message
+where id = (
+	select min(id) 
+	from message
+	where chat_id = $1
+)
+`,
+		chatID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("unable to select message by image hash: %w", err)
+	}
+	if len(res) == 0 {
+		return 0, &ErrNotFound{}
+	}
+
+	return res[0], nil
+}
+
 func (r *storage) SetLastUpdateID(ctx context.Context, lastUpdateID int) error {
 	_, err := r.db.ExecContext(ctx, `
 update last_update_id
@@ -484,6 +508,7 @@ from topkek
 where chat_id = $1
 order by id desc
 limit 1
+for update
 `,
 		chatID,
 	)
@@ -541,14 +566,16 @@ insert into topkek_message(
 	message_id,
 	source_message_id,
 	type,
-	raw
+	raw,
+	created_at
 ) values (
 	$1,
 	$2,
 	$3,
 	$4,
 	$5,
-	$6
+	$6,
+	$7
 )
 returning id
 	`,
@@ -558,6 +585,7 @@ returning id
 		msg.SourceMessageID,
 		string(msg.Type),
 		string(raw),
+		msg.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to insert topkek message: %w", err)
@@ -567,12 +595,13 @@ returning id
 }
 
 type topkekMessageDB struct {
-	TopkekID        int64  `db:"topkek_id"`
-	ChatID          int64  `db:"chat_id"`
-	MessageID       int    `db:"message_id"`
-	SourceMessageID int    `db:"source_message_id"`
-	Type            string `db:"type"`
-	Raw             string `db:"raw"`
+	TopkekID        int64     `db:"topkek_id"`
+	ChatID          int64     `db:"chat_id"`
+	MessageID       int       `db:"message_id"`
+	SourceMessageID int       `db:"source_message_id"`
+	Type            string    `db:"type"`
+	Raw             string    `db:"raw"`
+	CreatedAt       time.Time `db:"created_at"`
 }
 
 func topkekMessageFromDB(r topkekMessageDB) (*TopkekMessage, error) {
@@ -589,6 +618,7 @@ func topkekMessageFromDB(r topkekMessageDB) (*TopkekMessage, error) {
 		SourceMessageID: r.SourceMessageID,
 		Type:            TopkekMessageType(r.Type),
 		Raw:             data,
+		CreatedAt:       r.CreatedAt,
 	}, nil
 }
 
@@ -616,7 +646,8 @@ select
 	message_id,
 	source_message_id,
 	type,
-	raw
+	raw,
+	created_at
 from topkek_message
 where topkek_id = $1
 order by id
@@ -720,7 +751,7 @@ inner join lateral (
 	on mr.is_stale = 0
 		and mr.reacts >= $3
 where m.chat_id = $4
-	and m.id >= (select id from message where chat_id = $4 and message_id = $5)
+	and m.id >= (select min(id) from message where chat_id = $4 and message_id > $5)
 	and (m.image_hash is not null
 		or (m.video_video_hash is not null
 			and m.video_audio_hash is not null))
@@ -745,24 +776,28 @@ insert into chat_settings(
 	chat_id,
 	min_reactions,
 	image_hamming_distance,
-	video_hamming_distance
+	video_hamming_distance,
+	is_autotopkek
 ) values (
 	$1,
 	$2,
 	$3,
-	$4
+	$4,
+	$5
 )
 on conflict (chat_id)
 	do update 
 		set 
 			min_reactions = excluded.min_reactions,
 			image_hamming_distance = excluded.image_hamming_distance,
-			video_hamming_distance = excluded.video_hamming_distance
+			video_hamming_distance = excluded.video_hamming_distance,
+			is_autotopkek = excluded.is_autotopkek
 	`,
 		settings.ChatID,
 		settings.MinReactions,
 		settings.ImageHammingDistance,
 		settings.VideoHammingDistance,
+		settings.IsAutoTopkek,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to upsert chat settings: %w", err)
@@ -779,7 +814,8 @@ select
 	chat_id,
 	min_reactions,
 	image_hamming_distance,
-	video_hamming_distance
+	video_hamming_distance,
+	is_autotopkek
 from chat_settings
 where chat_id = $1
 `,
@@ -794,4 +830,25 @@ where chat_id = $1
 	}
 
 	return &res[0], nil
+}
+
+func (r *storage) ListChatsWithAutotopkek(ctx context.Context) ([]ChatSettings, error) {
+	var res []ChatSettings
+
+	err := r.db.SelectContext(ctx, &res, `
+select 
+	chat_id,
+	min_reactions,
+	image_hamming_distance,
+	video_hamming_distance,
+	is_autotopkek
+from chat_settings
+where is_autotopkek
+`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select chat settings: %w", err)
+	}
+
+	return res, nil
 }

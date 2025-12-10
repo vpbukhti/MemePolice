@@ -3,7 +3,7 @@
 
 alter table chat_settings add column is_autotopkek boolean not null default false;
 
-alter table topkek_message add column created_at timestamp not null default now();
+alter table topkek_message add column created_at timestamp not null default now() - interval '1 day';
 
 -- +goose StatementEnd
 

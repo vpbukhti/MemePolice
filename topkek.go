@@ -11,16 +11,20 @@ import (
 	tg "github.com/OvyFlash/telegram-bot-api"
 )
 
+func defaultTopkekName() string {
+	return fmt.Sprintf("Топкек %02d.%02d.%04d",
+		time.Now().UTC().Day(),
+		time.Now().UTC().Month(),
+		time.Now().UTC().Year(),
+	)
+}
+
 func parseCreateTopkekOptions(chatSettings ChatSettings, message *tg.Message) createTopkekOptions {
 	opts := createTopkekOptions{
-		ChatID:    message.Chat.ID,
-		AuthorID:  message.From.ID,
-		MessageID: message.MessageID,
-		Name: fmt.Sprintf("Топкек %02d.%02d.%04d",
-			time.Now().UTC().Day(),
-			time.Now().UTC().Month(),
-			time.Now().UTC().Year(),
-		),
+		ChatID:       message.Chat.ID,
+		AuthorID:     message.From.ID,
+		MessageID:    message.MessageID,
+		Name:         defaultTopkekName(),
 		MinReactions: chatSettings.MinReactions,
 	}
 
@@ -103,12 +107,9 @@ func (r *UpdateHandler) createTopkek(ctx context.Context, storage Storage, opts 
 	}
 
 	listOpts := ListMessagesWithReactionCountOptions{
-		ChatID:       opts.ChatID,
-		MinReactions: opts.MinReactions,
-		ExcludeReactions: [2]string{
-			RepeatedMemeEmoji,
-			StaleMemeEmoji,
-		},
+		ChatID:           opts.ChatID,
+		MinReactions:     opts.MinReactions,
+		ExcludeReactions: ExcludeReactions,
 	}
 	if lastTopkek != nil {
 		listOpts.StartingMessageID = lastTopkek.MessageID
@@ -247,6 +248,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 			SourceMessageID: msg.MessageID,
 			Type:            TopkekMessageTypeSrc,
 			Raw:             *msg,
+			CreatedAt:       time.Now().UTC(),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to create topkek src message: %w", err)
@@ -289,6 +291,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 			SourceMessageID: srcs[i].MessageID,
 			Type:            TopkekMessageTypeDst,
 			Raw:             msg,
+			CreatedAt:       time.Now().UTC(),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to create topkek dst message: %w", err)
@@ -306,6 +309,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 		MessageID: pollRes.MessageID,
 		Type:      TopkekMessageTypePoll,
 		Raw:       *pollRes,
+		CreatedAt: time.Now().UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create topkek dst message: %w", err)
@@ -458,6 +462,7 @@ func (r *UpdateHandler) finishTopkek(ctx context.Context, storage Storage, topke
 		SourceMessageID: winnerMsg.SourceMessageID,
 		Type:            TopkekMessageTypeWinner,
 		Raw:             *winnerMsgRes,
+		CreatedAt:       time.Now().UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to cerate topkek winner msg: %w", err)
