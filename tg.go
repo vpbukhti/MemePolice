@@ -347,3 +347,20 @@ func (r *UpdateHandler) sendSimplePoll(ctx context.Context,
 
 	return &msg, nil
 }
+
+func (r *UpdateHandler) pinMessage(ctx context.Context,
+	chatID int64,
+	messageID int,
+) error {
+	_, err := r.bot.Send(tg.NewPinChatMessage(chatID, messageID, true))
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return &ErrNotFound{
+				Err: fmt.Errorf("unable to pin message: %w", err),
+			}
+		}
+		return fmt.Errorf("unable to pin message: %w", err)
+	}
+
+	return nil
+}
