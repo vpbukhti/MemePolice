@@ -666,19 +666,17 @@ func (r *storage) GetTopkekWinners(ctx context.Context, from time.Time) ([]Topke
 
 	err := r.db.SelectContext(ctx, &res, `
 select 
-	tm.topkek_id,
-	tm.chat_id,
-	tm.message_id,
-	tm.source_message_id,
-	tm.type,
-	tm.raw,
-	tm.created_at
-from topkek_message as tm
-inner join topkek as t
-	on t.id = tm.topkek_id
-where t.created_at > $1
-	and tm.type = $2
-order by tm.id
+	topkek_id,
+	chat_id,
+	message_id,
+	source_message_id,
+	type,
+	raw,
+	created_at
+from topkek_message
+where created_at > $1
+	and type = $2
+order by id
 `,
 		from,
 		TopkekMessageTypeWinner,
