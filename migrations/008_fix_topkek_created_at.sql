@@ -4,7 +4,8 @@
 update topkek_message
 set created_at = t.created_at
 from topkek as t
-where topkek_message.topkek_id = t.id;
+where topkek_message.topkek_id = t.id
+    and t.created_at < now() - interval '1 week';
 
 -- +goose StatementEnd
 
