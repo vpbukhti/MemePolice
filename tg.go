@@ -354,6 +354,10 @@ func (r *UpdateHandler) pinMessage(ctx context.Context,
 ) error {
 	_, err := r.bot.Send(tg.NewPinChatMessage(chatID, messageID, true))
 	if err != nil {
+		if strings.Contains(err.Error(), "cannot unmarshal bool into Go value of type tgbotapi.Message") {
+			// sometimes tg api send back crap
+			return nil
+		}
 		if strings.Contains(err.Error(), "not found") {
 			return &ErrNotFound{
 				Err: fmt.Errorf("unable to pin message: %w", err),
