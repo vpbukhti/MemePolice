@@ -574,6 +574,8 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 }
 
 func (r *UpdateHandler) sendTemporaryMediaGroup(ctx context.Context, chatID int64, messages []*tg.Message, timeout time.Duration) error {
+	slog.InfoContext(ctx, "lel", slog.Any("messages", messages))
+
 	chunks := chunkMessages(messages)
 	for _, chunk := range chunks {
 		files := []any{}
