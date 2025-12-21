@@ -714,7 +714,7 @@ func (r *UpdateHandler) createYearlyTopkek(ctx context.Context, storage Storage,
 func (r *UpdateHandler) handleYearlyPreview(ctx context.Context, storage Storage, message *tg.Message) error {
 	thisYear := time.Date(time.Now().UTC().Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 
-	sourceMessages, err := storage.GetTopkekWinners(ctx, thisYear)
+	sourceMessages, err := storage.GetTopkekWinners(ctx, message.Chat.ID, thisYear)
 	if err != nil {
 		return fmt.Errorf("unable to find topkek winners messages: %w", err)
 	}

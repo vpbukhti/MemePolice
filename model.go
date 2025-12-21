@@ -105,7 +105,7 @@ type Storage interface {
 	CreateTopkekMessage(ctx context.Context, msg TopkekMessage) error
 	GetTopkekMessages(ctx context.Context, topkekID int64) ([]TopkekMessage, error)
 	DeleteTopkekMessages(ctx context.Context, topkekID int64) error
-	GetTopkekWinners(ctx context.Context, from time.Time) ([]TopkekMessage, error)
+	GetTopkekWinners(ctx context.Context, chatID int64, from time.Time) ([]TopkekMessage, error)
 
 	UpsertChatSettings(ctx context.Context, settings ChatSettings) error
 	GetChatSettings(ctx context.Context, chatID int64) (*ChatSettings, error)
