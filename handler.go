@@ -407,6 +407,18 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 			return fmt.Errorf("unable to handle finish topkek: %w", err)
 		}
 
+	case "yearly_topkek":
+		err := r.handleCreateYearlyTopkek(ctx, storage, message)
+		if err != nil {
+			return fmt.Errorf("unable to handle create yearly topkek: %w", err)
+		}
+
+	case "yearly_preview":
+		err := r.handleYearlyPreview(ctx, storage, message)
+		if err != nil {
+			return fmt.Errorf("unable to handle yearly preview: %w", err)
+		}
+
 	case "settings":
 		err := r.handleChatSettings(ctx, storage, message)
 		if err != nil {
@@ -689,7 +701,7 @@ func (r *UpdateHandler) handleNewPhoto(ctx context.Context, storage Storage, mes
 }
 
 func (r *UpdateHandler) getOrCreateChatSettings(ctx context.Context, storage Storage, chatID int64) (*ChatSettings, error) {
-	chatSettings, err := r.storage.GetChatSettings(ctx, chatID)
+	chatSettings, err := storage.GetChatSettings(ctx, chatID)
 	if err != nil && !errors.Is(err, &ErrNotFound{}) {
 		return nil, fmt.Errorf("unable to get chat settings: %w", err)
 	}

@@ -105,6 +105,7 @@ type Storage interface {
 	CreateTopkekMessage(ctx context.Context, msg TopkekMessage) error
 	GetTopkekMessages(ctx context.Context, topkekID int64) ([]TopkekMessage, error)
 	DeleteTopkekMessages(ctx context.Context, topkekID int64) error
+	GetTopkekWinners(ctx context.Context, chatID int64, from time.Time) ([]TopkekMessage, error)
 
 	UpsertChatSettings(ctx context.Context, settings ChatSettings) error
 	GetChatSettings(ctx context.Context, chatID int64) (*ChatSettings, error)
@@ -165,6 +166,7 @@ func defaultChatSettings(chatID int64) ChatSettings {
 		MinReactions:         5,
 		ImageHammingDistance: 3,
 		VideoHammingDistance: 11,
+		IsAutoTopkek:         false,
 	}
 }
 

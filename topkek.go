@@ -303,6 +303,13 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 		return fmt.Errorf("unable to send topkek poll: %w", err)
 	}
 
+	if srcOffset == 0 {
+		err := r.pinMessage(ctx, topkek.ChatID, pollRes.MessageID)
+		if err != nil {
+			slog.ErrorContext(ctx, "unable to pin first topkek poll", slog.String("err", err.Error()))
+		}
+	}
+
 	err = storage.CreateTopkekMessage(ctx, TopkekMessage{
 		TopkekID:  topkek.ID,
 		ChatID:    topkek.ChatID,
@@ -455,6 +462,11 @@ func (r *UpdateHandler) finishTopkek(ctx context.Context, storage Storage, topke
 		}
 	}
 
+	err = r.pinMessage(ctx, topkek.ChatID, winnerMsgRes.MessageID)
+	if err != nil {
+		slog.ErrorContext(ctx, "unable to pin topkek winner", slog.String("err", err.Error()))
+	}
+
 	err = storage.CreateTopkekMessage(ctx, TopkekMessage{
 		TopkekID:        topkekID,
 		ChatID:          topkek.ChatID,
@@ -553,7 +565,16 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 		return errNotEnoughTopkekSrcs
 	}
 
-	chunks := chunkMessages(messagesToTG(sourceMessages))
+	err = r.sendTemporaryMediaGroup(ctx, message.Chat.ID, messagesToTG(sourceMessages), time.Minute)
+	if err != nil {
+		return fmt.Errorf("unable to send out temporary media group: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UpdateHandler) sendTemporaryMediaGroup(ctx context.Context, chatID int64, messages []*tg.Message, timeout time.Duration) error {
+	chunks := chunkMessages(messages)
 	for _, chunk := range chunks {
 		files := []any{}
 
@@ -571,7 +592,7 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 			}
 		}
 
-		sentMessages, err := r.sendMediaGroup(ctx, message.Chat.ID, files)
+		sentMessages, err := r.sendMediaGroup(ctx, chatID, files)
 		if err != nil {
 			return fmt.Errorf("unable to send media group: %w", err)
 		}
@@ -584,13 +605,129 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 		go func() {
 			select {
 			case <-ctx.Done():
-			case <-time.After(time.Minute):
-				err := r.deleteMessages(ctx, message.Chat.ID, msgIds)
+			case <-time.After(timeout):
+				err := r.deleteMessages(ctx, chatID, msgIds)
 				if err != nil {
 					slog.ErrorContext(ctx, "unable to delete messages", "error", err, "msg_ids", msgIds)
 				}
 			}
 		}()
+	}
+
+	return nil
+}
+
+func (r *UpdateHandler) handleCreateYearlyTopkek(ctx context.Context, storage Storage, message *tg.Message) error {
+	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
+	if err != nil {
+		return fmt.Errorf("unable to get or create chat settings: %w", err)
+	}
+
+	opts := parseCreateTopkekOptions(*chatSettings, message)
+	opts.Name = fmt.Sprintf("Годовой Топкек %04d",
+		time.Now().UTC().Year(),
+	)
+	opts.StartingMessageID = nil
+	opts.MinReactions = 0
+
+	err = r.createYearlyTopkek(ctx, storage, opts)
+	if err != nil &&
+		!errors.Is(err, errNotEnoughTopkekSrcs) &&
+		!errors.Is(err, errNoTopkekStartMessage) &&
+		!errors.Is(err, errTopkekAlreadyInProgress) {
+		return fmt.Errorf("unable to create topkek: %w", err)
+	}
+	if err != nil && errors.Is(err, errNotEnoughTopkekSrcs) {
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо хотя бы два мема")
+		if err != nil {
+			return fmt.Errorf("unable to send message reply: %w", err)
+		}
+		return errNotEnoughTopkekSrcs
+	}
+	if err != nil && errors.Is(err, errTopkekAlreadyInProgress) {
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
+		if err != nil {
+			return fmt.Errorf("unable to send message reply: %w", err)
+		}
+		return errTopkekAlreadyInProgress
+	}
+
+	return nil
+}
+
+func topkekMessagesToTG(r []TopkekMessage) []*tg.Message {
+	res := make([]*tg.Message, 0, len(r))
+	for _, msg := range r {
+		res = append(res, &msg.Raw)
+	}
+	return res
+}
+
+func (r *UpdateHandler) createYearlyTopkek(ctx context.Context, storage Storage, opts createTopkekOptions) error {
+	lastTopkek, err := storage.GetLastTopkek(ctx, opts.ChatID)
+	if err != nil && !errors.Is(err, &ErrNotFound{}) {
+		return fmt.Errorf("unable to get latest topkek: %w", err)
+	}
+
+	if lastTopkek != nil && lastTopkek.Status != TopkekStatusDone {
+		return errTopkekAlreadyInProgress
+	}
+
+	thisYear := time.Date(time.Now().UTC().Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+
+	sourceMessages, err := storage.GetTopkekWinners(ctx, opts.ChatID, thisYear)
+	if err != nil {
+		return fmt.Errorf("unable to find topkek winners messages: %w", err)
+	}
+
+	if len(sourceMessages) < 2 {
+		return errNotEnoughTopkekSrcs
+	}
+
+	topkekID, err := storage.CreateTopkek(ctx, Topkek{
+		Name:      opts.Name,
+		AuthorID:  opts.AuthorID,
+		ChatID:    opts.ChatID,
+		MessageID: opts.MessageID,
+		Status:    TopkekStatusStarted,
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to create yearly topkek: %w", err)
+	}
+
+	topkek, err := storage.GetTopkek(ctx, topkekID)
+	if err != nil {
+		return fmt.Errorf("unable to get current topkek: %w", err)
+	}
+
+	err = r.startTopkek(ctx, storage, topkek, topkekMessagesToTG(sourceMessages))
+	if err != nil {
+		return fmt.Errorf("unable to start yearly topkek: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UpdateHandler) handleYearlyPreview(ctx context.Context, storage Storage, message *tg.Message) error {
+	thisYear := time.Date(time.Now().UTC().Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+
+	sourceMessages, err := storage.GetTopkekWinners(ctx, message.Chat.ID, thisYear)
+	if err != nil {
+		return fmt.Errorf("unable to find topkek winners messages: %w", err)
+	}
+
+	if len(sourceMessages) == 0 {
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в годовой топкек")
+		if err != nil {
+			return fmt.Errorf("unable to send message reply: %w", err)
+		}
+		return errNotEnoughTopkekSrcs
+	}
+
+	err = r.sendTemporaryMediaGroup(ctx, message.Chat.ID, topkekMessagesToTG(sourceMessages), time.Minute)
+	if err != nil {
+		return fmt.Errorf("unable to send out temporary media group: %w", err)
 	}
 
 	return nil

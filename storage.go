@@ -661,6 +661,35 @@ order by id
 	return topkekMessagesFromDB(res)
 }
 
+func (r *storage) GetTopkekWinners(ctx context.Context, chatID int64, from time.Time) ([]TopkekMessage, error) {
+	var res []topkekMessageDB
+
+	err := r.db.SelectContext(ctx, &res, `
+select 
+	topkek_id,
+	chat_id,
+	message_id,
+	source_message_id,
+	type,
+	raw,
+	created_at
+from topkek_message
+where created_at > $1
+	and type = $2
+	and chat_id = $3
+order by id
+`,
+		from,
+		TopkekMessageTypeWinner,
+		chatID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select topkek winner messages: %w", err)
+	}
+
+	return topkekMessagesFromDB(res)
+}
+
 func (r *storage) DeleteTopkekMessages(ctx context.Context, topkekID int64) error {
 	_, err := r.db.ExecContext(ctx, `
 delete from topkek_message
