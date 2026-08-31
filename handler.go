@@ -721,7 +721,7 @@ func (r *UpdateHandler) getOrCreateChatSettings(ctx context.Context, storage Sto
 
 func formatChatSettings(settings ChatSettings) string {
 	return fmt.Sprintf(`Настройки чата:
-* Автотопкек: %v
+* Авто Великий Прикол: %v
 * Порог реакций: %d
 * Порог схожести изображений: %d
 * Порог схожести видео: %d`,
