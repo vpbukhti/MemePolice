@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -216,6 +217,53 @@ func (r *UpdateHandler) sendVideoRepy(ctx context.Context,
 	}
 
 	return &msg, nil
+}
+
+var errNoMedia = errors.New("no media")
+
+func (r *UpdateHandler) sendMediaReply(ctx context.Context,
+	chatID int64,
+	replyMessageID int,
+	htmlCaption string,
+	msg *tg.Message,
+) (*tg.Message, error) {
+	replyParameters := tg.ReplyParameters{
+		MessageID:                replyMessageID,
+		AllowSendingWithoutReply: true,
+	}
+
+	var media tg.Chattable
+
+	switch {
+	case len(msg.Photo) > 0:
+		photo := tg.NewPhoto(chatID, tg.FileID(msg.Photo[len(msg.Photo)-1].FileID))
+		photo.Caption = htmlCaption
+		photo.ParseMode = tg.ModeHTML
+		photo.ReplyParameters = replyParameters
+		media = photo
+
+	case msg.Video != nil:
+		video := tg.NewVideo(chatID, tg.FileID(msg.Video.FileID))
+		video.Caption = htmlCaption
+		video.ParseMode = tg.ModeHTML
+		video.ReplyParameters = replyParameters
+		media = video
+
+	default:
+		return nil, errNoMedia
+	}
+
+	res, err := r.bot.Send(media)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, &ErrNotFound{
+				Err: fmt.Errorf("unable to send media reply: %w", err),
+			}
+		}
+		return nil, fmt.Errorf("unable to send media reply: %w", err)
+	}
+
+	return &res, nil
 }
 
 func (r *UpdateHandler) getTelegramImage(ctx context.Context, fileID string) (image.Image, error) {
