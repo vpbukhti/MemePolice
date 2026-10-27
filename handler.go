@@ -537,36 +537,27 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 		return nil
 	}
 
-	mediaMsg, err := r.sendMediaReply(ctx,
+	replyID, err := r.sendOriginalMessageCopy(ctx,
 		message.Chat.ID,
 		message.MessageID,
-		&origMsg.Raw,
-		formatOriginalMessageInfo(origMsg.Raw),
-		originalMessageLinkText,
-		messageLink(message.Chat.ID, origMsg.MessageID),
+		origMsg,
+		r.formatOriginalMessageInfo(ctx, *origMsg),
 	)
-	if err != nil && !errors.Is(err, &ErrNotFound{}) && !errors.Is(err, errNoMedia) {
-		return fmt.Errorf("unable to send original media: %w", err)
-	}
 	if err != nil {
-		slog.WarnContext(ctx, "error sending original media",
-			slog.String("err", err.Error()),
-			slog.Int("repeated_msg_id", repeatedMsg.MessageID),
-			slog.Any("orig_msg", origMsg),
-		)
-		_, err = r.sendOriginalMessageInfo(ctx, message.Chat.ID, message.MessageID, origMsg)
-		if err != nil {
-			return fmt.Errorf("unable to send original message info: %w", err)
-		}
-		return nil
+		return fmt.Errorf("unable to send original message copy: %w", err)
 	}
+
+	slog.InfoContext(ctx, "sent original message copy",
+		slog.Int("repeated_msg_id", repeatedMsg.MessageID),
+		slog.Int("orig_msg_id", origMsg.MessageID),
+	)
 
 	go func() {
 		select {
 		case <-time.After(whyTheFuckMediaTimeout):
 		case <-ctx.Done():
 		}
-		err := r.deleteMessage(ctx, message.Chat.ID, mediaMsg.MessageID)
+		err := r.deleteMessage(ctx, message.Chat.ID, replyID)
 		if err != nil {
 			slog.ErrorContext(ctx, "unable to delete original media", slog.String("err", err.Error()))
 		}
@@ -653,26 +644,14 @@ func (r *UpdateHandler) findClosestMessages(ctx context.Context, storage Storage
 }
 
 func (r *UpdateHandler) sendWhyNotHit(ctx context.Context, message *tg.Message, selectedMsg *Message, hit *Message) error {
-	caption := formatWhyNotInfo(*selectedMsg, *hit)
-	link := messageLink(message.Chat.ID, hit.MessageID)
-
-	var replyID int
-
-	mediaMsg, err := r.sendMediaReply(ctx, message.Chat.ID, message.MessageID, &hit.Raw, caption, originalMessageLinkText, link)
-	if err != nil && !errors.Is(err, &ErrNotFound{}) && !errors.Is(err, errNoMedia) {
-		return fmt.Errorf("unable to send hit media: %w", err)
-	}
+	replyID, err := r.sendOriginalMessageCopy(ctx,
+		message.Chat.ID,
+		message.MessageID,
+		hit,
+		r.formatWhyNotInfo(ctx, *selectedMsg, *hit),
+	)
 	if err != nil {
-		slog.WarnContext(ctx, "error sending hit media",
-			slog.String("err", err.Error()),
-			slog.Any("hit", hit),
-		)
-		replyID, err = r.sendLinkReply(ctx, message.Chat.ID, message.MessageID, caption, originalMessageLinkText, link)
-		if err != nil {
-			return fmt.Errorf("unable to send hit info: %w", err)
-		}
-	} else {
-		replyID = mediaMsg.MessageID
+		return fmt.Errorf("unable to send hit copy: %w", err)
 	}
 
 	go func() {
@@ -689,8 +668,8 @@ func (r *UpdateHandler) sendWhyNotHit(ctx context.Context, message *tg.Message, 
 	return nil
 }
 
-func formatWhyNotInfo(selectedMsg Message, hit Message) string {
-	lines := []string{formatOriginalMessageInfo(hit.Raw)}
+func (r *UpdateHandler) formatWhyNotInfo(ctx context.Context, selectedMsg Message, hit Message) string {
+	lines := []string{r.formatOriginalMessageInfo(ctx, hit)}
 
 	switch {
 	case hit.ImageHash != nil && selectedMsg.ImageHash != nil:
@@ -719,22 +698,80 @@ func formatHashComparison(label string, origHash, selectedHash uint64) string {
 	)
 }
 
-func formatOriginalMessageInfo(msg tg.Message) string {
-	sentAt := time.Unix(msg.Date, 0).UTC().Format("02.01.2006 15:04 UTC")
+func (r *UpdateHandler) formatOriginalMessageInfo(ctx context.Context, msg Message) string {
+	sentAt := time.Unix(msg.Raw.Date, 0)
+	if msg.Raw.Date == 0 {
+		sentAt = msg.CreatedAt
+	}
+	sentAtText := sentAt.UTC().Format("02.01.2006 15:04 UTC")
 
-	if msg.From == nil {
-		return sentAt
+	author := r.getMessageAuthor(ctx, msg)
+	if author == nil {
+		return sentAtText
 	}
 
-	author := strings.TrimSpace(msg.From.FirstName + " " + msg.From.LastName)
-	if author == "" {
-		author = msg.From.UserName
+	authorName := strings.TrimSpace(author.FirstName + " " + author.LastName)
+	if authorName == "" {
+		authorName = author.UserName
 	}
-	if author == "" {
-		return sentAt
+	if authorName == "" {
+		return sentAtText
 	}
 
-	return fmt.Sprintf("%s %s", author, sentAt)
+	return fmt.Sprintf("%s %s", authorName, sentAtText)
+}
+
+func (r *UpdateHandler) getMessageAuthor(ctx context.Context, msg Message) *tg.User {
+	author := msg.Raw.From
+	if author == nil || author.ID == 0 || author.FirstName != "" || author.UserName != "" {
+		return author
+	}
+
+	member, err := r.bot.GetChatMember(tg.GetChatMemberConfig{
+		ChatConfigWithUser: tg.ChatConfigWithUser{
+			ChatConfig: tg.ChatConfig{
+				ChatID: msg.ChatID,
+			},
+			UserID: author.ID,
+		},
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "unable to get message author",
+			slog.String("err", err.Error()),
+			slog.Int64("user_id", author.ID),
+		)
+		return author
+	}
+
+	return member.User
+}
+
+const originalMessageDeletedText = "Оригинал удален"
+
+func (r *UpdateHandler) sendOriginalMessageCopy(ctx context.Context, chatID int64, replyToMessageID int, origMsg *Message, caption string) (int, error) {
+	link := messageLink(chatID, origMsg.MessageID)
+
+	replyID, err := r.copyMessageReply(ctx, chatID, replyToMessageID, origMsg.MessageID, caption, originalMessageLinkText, link)
+	if err == nil {
+		return replyID, nil
+	}
+
+	slog.WarnContext(ctx, "unable to copy original message",
+		slog.String("err", err.Error()),
+		slog.Int("orig_msg_id", origMsg.MessageID),
+	)
+
+	if errors.Is(err, &ErrNotFound{}) {
+		caption = caption + "\n\n" + originalMessageDeletedText
+		link = ""
+	}
+
+	replyID, err = r.sendLinkReply(ctx, chatID, replyToMessageID, caption, originalMessageLinkText, link)
+	if err != nil {
+		return 0, fmt.Errorf("unable to send original message info: %w", err)
+	}
+
+	return replyID, nil
 }
 
 const originalMessageLinkText = "Оригинал"
@@ -753,7 +790,7 @@ func (r *UpdateHandler) sendOriginalMessageInfo(ctx context.Context, chatID int6
 	return r.sendLinkReply(ctx,
 		chatID,
 		replyToMessageID,
-		formatOriginalMessageInfo(origMsg.Raw),
+		r.formatOriginalMessageInfo(ctx, *origMsg),
 		originalMessageLinkText,
 		messageLink(chatID, origMsg.MessageID),
 	)

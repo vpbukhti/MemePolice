@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -279,53 +278,33 @@ func (r *UpdateHandler) sendVideoRepy(ctx context.Context,
 	return &msg, nil
 }
 
-var errNoMedia = errors.New("no media")
-
-func (r *UpdateHandler) sendMediaReply(ctx context.Context,
+func (r *UpdateHandler) copyMessageReply(ctx context.Context,
 	chatID int64,
-	replyMessageID int,
-	msg *tg.Message,
+	replyToMessageID int,
+	fromMessageID int,
 	caption string,
 	linkText string,
 	link string,
-) (*tg.Message, error) {
-	replyParameters := tg.ReplyParameters{
-		MessageID:                replyMessageID,
+) (int, error) {
+	msg := tg.NewCopyMessage(chatID, chatID, fromMessageID)
+	msg.Caption = caption
+	msg.ReplyParameters = tg.ReplyParameters{
+		MessageID:                replyToMessageID,
 		AllowSendingWithoutReply: true,
 	}
+	msg.ReplyMarkup = linkMarkup(linkText, link)
 
-	var media tg.Chattable
-
-	switch {
-	case len(msg.Photo) > 0:
-		photo := tg.NewPhoto(chatID, tg.FileID(msg.Photo[len(msg.Photo)-1].FileID))
-		photo.Caption = caption
-		photo.ReplyParameters = replyParameters
-		photo.ReplyMarkup = linkMarkup(linkText, link)
-		media = photo
-
-	case msg.Video != nil:
-		video := tg.NewVideo(chatID, tg.FileID(msg.Video.FileID))
-		video.Caption = caption
-		video.ReplyParameters = replyParameters
-		video.ReplyMarkup = linkMarkup(linkText, link)
-		media = video
-
-	default:
-		return nil, errNoMedia
-	}
-
-	res, err := r.bot.Send(media)
+	res, err := r.bot.CopyMessage(msg)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			return nil, &ErrNotFound{
-				Err: fmt.Errorf("unable to send media reply: %w", err),
+			return 0, &ErrNotFound{
+				Err: fmt.Errorf("unable to copy message: %w", err),
 			}
 		}
-		return nil, fmt.Errorf("unable to send media reply: %w", err)
+		return 0, fmt.Errorf("unable to copy message: %w", err)
 	}
 
-	return &res, nil
+	return res.MessageID, nil
 }
 
 func (r *UpdateHandler) getTelegramImage(ctx context.Context, fileID string) (image.Image, error) {
