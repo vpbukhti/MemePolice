@@ -100,20 +100,20 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 	now time.Time,
 	chat ChatSettings,
 	lastTopkek *Topkek,
-) (int, error) {
+) (*ListMessagesWithReactionCountOptions, error) {
 	if now.Hour() != 9 {
-		return 0, fmt.Errorf("now is not the time: %w", errCreateAutoTopkekPreconditionsNotMet)
+		return nil, fmt.Errorf("now is not the time: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 	if !chat.IsAutoTopkek {
-		return 0, fmt.Errorf("not autotopkek: %w", errCreateAutoTopkekPreconditionsNotMet)
+		return nil, fmt.Errorf("not autotopkek: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 	if lastTopkek != nil &&
 		lastTopkek.Status != TopkekStatusDone {
-		return 0, fmt.Errorf("last topkek is not finished: %w", errCreateAutoTopkekPreconditionsNotMet)
+		return nil, fmt.Errorf("last topkek is not finished: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 	if lastTopkek != nil &&
 		lastTopkek.CreatedAt.UTC().Truncate(time.Hour).After(now.Add(-time.Hour*24*7)) {
-		return 0, fmt.Errorf("last topkek was too recent: %w", errCreateAutoTopkekPreconditionsNotMet)
+		return nil, fmt.Errorf("last topkek was too recent: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 
 	listMessagesOpts := ListMessagesWithReactionCountOptions{
@@ -121,29 +121,46 @@ func (r *UpdateHandler) checkCreateAutoTopkekPreconditions(ctx context.Context, 
 		MinReactions:     chat.MinReactions,
 		ExcludeReactions: ExcludeReactions,
 	}
-	if lastTopkek != nil {
-		listMessagesOpts.StartingMessageID = lastTopkek.MessageID
+
+	startingTopkek := lastTopkek
+	if chat.IsGraceOffset && lastTopkek != nil {
+		lastTopkekSrcs, err := r.getTopkekMessages(ctx, storage, lastTopkek.ID, TopkekMessageTypeSrc)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get last topkek srcs: %w", err)
+		}
+		for _, src := range lastTopkekSrcs {
+			listMessagesOpts.ExcludeMessageIDs = append(listMessagesOpts.ExcludeMessageIDs, int64(src.SourceMessageID))
+		}
+
+		startingTopkek, err = storage.GetPreviousTopkek(ctx, chat.ChatID, lastTopkek.ID)
+		if err != nil && !errors.Is(err, &ErrNotFound{}) {
+			return nil, fmt.Errorf("unable to get previous topkek: %w", err)
+		}
+	}
+
+	if startingTopkek != nil {
+		listMessagesOpts.StartingMessageID = startingTopkek.MessageID
 	} else {
 		firstMessageID, err := storage.GetFirstChatMessageID(ctx, chat.ChatID)
 		if err != nil && !errors.Is(err, &ErrNotFound{}) {
-			return 0, fmt.Errorf("unable to get first chat message ID: %w", err)
+			return nil, fmt.Errorf("unable to get first chat message ID: %w", err)
 		}
 		if err != nil && errors.Is(err, &ErrNotFound{}) {
 			// no messages in the chat, can't start the first topkek
-			return 0, fmt.Errorf("no source messages: %w", errCreateAutoTopkekPreconditionsNotMet)
+			return nil, fmt.Errorf("no source messages: %w", errCreateAutoTopkekPreconditionsNotMet)
 		}
 		listMessagesOpts.StartingMessageID = firstMessageID
 	}
 
 	sourceMessages, err := storage.ListMessagesWithReactionCount(ctx, listMessagesOpts)
 	if err != nil {
-		return 0, fmt.Errorf("unable to find topkek source messages: %w", err)
+		return nil, fmt.Errorf("unable to find topkek source messages: %w", err)
 	}
 	if len(sourceMessages) < 2 {
-		return 0, fmt.Errorf("not enough source messages: %w", errCreateAutoTopkekPreconditionsNotMet)
+		return nil, fmt.Errorf("not enough source messages: %w", errCreateAutoTopkekPreconditionsNotMet)
 	}
 
-	return listMessagesOpts.StartingMessageID, nil
+	return &listMessagesOpts, nil
 }
 
 func (r *UpdateHandler) createAutoTopkek(ctx context.Context, storage Storage,
@@ -151,7 +168,7 @@ func (r *UpdateHandler) createAutoTopkek(ctx context.Context, storage Storage,
 	chat ChatSettings,
 	lastTopkek *Topkek,
 ) error {
-	startMessageID, err := r.checkCreateAutoTopkekPreconditions(ctx, storage, now, chat, lastTopkek)
+	listMessagesOpts, err := r.checkCreateAutoTopkekPreconditions(ctx, storage, now, chat, lastTopkek)
 	if err != nil {
 		return err
 	}
@@ -166,8 +183,9 @@ func (r *UpdateHandler) createAutoTopkek(ctx context.Context, storage Storage,
 		ChatID:            chat.ChatID,
 		Name:              defaultTopkekName(),
 		AuthorID:          r.bot.Self.ID,
-		StartingMessageID: &startMessageID,
+		StartingMessageID: &listMessagesOpts.StartingMessageID,
 		MinReactions:      chat.MinReactions,
+		ExcludeMessageIDs: listMessagesOpts.ExcludeMessageIDs,
 	}
 
 	err = r.createTopkek(ctx, storage, createOpts)

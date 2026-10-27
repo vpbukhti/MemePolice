@@ -81,6 +81,7 @@ type ListMessagesWithReactionCountOptions struct {
 	StartingMessageID int
 	MinReactions      int
 	ExcludeReactions  [2]string
+	ExcludeMessageIDs []int64
 }
 
 type Storage interface {
@@ -101,10 +102,11 @@ type Storage interface {
 	CreateTopkek(ctx context.Context, tk Topkek) (int64, error)
 	UpdateTopkekStatus(ctx context.Context, id int64, status TopkekStatus) error
 	GetLastTopkek(ctx context.Context, chatID int64) (*Topkek, error)
+	GetPreviousTopkek(ctx context.Context, chatID int64, topkekID int64) (*Topkek, error)
 	GetTopkek(ctx context.Context, topkekID int64) (*Topkek, error)
 	CreateTopkekMessage(ctx context.Context, msg TopkekMessage) error
 	GetTopkekMessages(ctx context.Context, topkekID int64) ([]TopkekMessage, error)
-	DeleteTopkekMessages(ctx context.Context, topkekID int64) error
+	DeleteTopkekMessages(ctx context.Context, topkekID int64, msgTypes []TopkekMessageType) error
 	GetTopkekWinners(ctx context.Context, chatID int64, from time.Time) ([]TopkekMessage, error)
 
 	UpsertChatSettings(ctx context.Context, settings ChatSettings) error
@@ -167,6 +169,7 @@ func defaultChatSettings(chatID int64) ChatSettings {
 		ImageHammingDistance: 3,
 		VideoHammingDistance: 11,
 		IsAutoTopkek:         false,
+		IsGraceOffset:        false,
 	}
 }
 
@@ -176,4 +179,5 @@ type ChatSettings struct {
 	ImageHammingDistance int   `db:"image_hamming_distance"`
 	VideoHammingDistance int   `db:"video_hamming_distance"`
 	IsAutoTopkek         bool  `db:"is_autotopkek"`
+	IsGraceOffset        bool  `db:"is_grace_offset"`
 }

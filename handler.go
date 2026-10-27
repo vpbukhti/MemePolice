@@ -456,6 +456,12 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 			return fmt.Errorf("unable to handle chat settings autotopkek: %w", err)
 		}
 
+	case "graceoffset":
+		err := r.handleChatSettingsGraceOffset(ctx, storage, message)
+		if err != nil {
+			return fmt.Errorf("unable to handle chat settings grace offset: %w", err)
+		}
+
 	case "help":
 		err := r.handleHelp(ctx, storage, message)
 		if err != nil {
@@ -796,10 +802,12 @@ func (r *UpdateHandler) getOrCreateChatSettings(ctx context.Context, storage Sto
 func formatChatSettings(settings ChatSettings) string {
 	return fmt.Sprintf(`Настройки чата:
 * Автотопкек: %v
+* Льготный период: %v
 * Порог реакций: %d
 * Порог схожести изображений: %d
 * Порог схожести видео: %d`,
 		settings.IsAutoTopkek,
+		settings.IsGraceOffset,
 		settings.MinReactions,
 		settings.ImageHammingDistance,
 		settings.VideoHammingDistance,
@@ -925,6 +933,27 @@ func (r *UpdateHandler) handleChatSettingsAutoTopkek(ctx context.Context, storag
 	}
 
 	chatSettings.IsAutoTopkek = !chatSettings.IsAutoTopkek
+
+	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
+	if err != nil {
+		return fmt.Errorf("unable to update chat settings: %w", err)
+	}
+
+	err = r.sendOutChatSettings(ctx, storage, message.Chat.ID)
+	if err != nil {
+		return fmt.Errorf("unable to send out chat settings: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UpdateHandler) handleChatSettingsGraceOffset(ctx context.Context, storage Storage, message *tg.Message) error {
+	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
+	if err != nil {
+		return fmt.Errorf("unable to get or create chat settings: %w", err)
+	}
+
+	chatSettings.IsGraceOffset = !chatSettings.IsGraceOffset
 
 	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
 	if err != nil {

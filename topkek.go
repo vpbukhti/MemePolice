@@ -91,6 +91,7 @@ type createTopkekOptions struct {
 	AuthorID          int64
 	StartingMessageID *int
 	MinReactions      int
+	ExcludeMessageIDs []int64
 }
 
 func (r *UpdateHandler) createTopkek(ctx context.Context, storage Storage, opts createTopkekOptions) error {
@@ -107,9 +108,10 @@ func (r *UpdateHandler) createTopkek(ctx context.Context, storage Storage, opts 
 	}
 
 	listOpts := ListMessagesWithReactionCountOptions{
-		ChatID:           opts.ChatID,
-		MinReactions:     opts.MinReactions,
-		ExcludeReactions: ExcludeReactions,
+		ChatID:            opts.ChatID,
+		MinReactions:      opts.MinReactions,
+		ExcludeReactions:  ExcludeReactions,
+		ExcludeMessageIDs: opts.ExcludeMessageIDs,
 	}
 	if lastTopkek != nil {
 		listOpts.StartingMessageID = lastTopkek.MessageID
@@ -502,7 +504,10 @@ func (r *UpdateHandler) finishTopkek(ctx context.Context, storage Storage, topke
 }
 
 func (r *UpdateHandler) restartTopkek(ctx context.Context, storage Storage, topkek *Topkek, srcs []TopkekMessage) error {
-	err := storage.DeleteTopkekMessages(ctx, topkek.ID)
+	err := storage.DeleteTopkekMessages(ctx, topkek.ID, []TopkekMessageType{
+		TopkekMessageTypeDst,
+		TopkekMessageTypePoll,
+	})
 	if err != nil {
 		return fmt.Errorf("unable to delete topkek old topkek msgs: %w", err)
 	}

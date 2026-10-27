@@ -12,7 +12,7 @@ import (
 
 	tgbotapi "github.com/OvyFlash/telegram-bot-api"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/pressly/goose/v3"
 )
 
@@ -523,6 +523,38 @@ for update
 	return &res[0], nil
 }
 
+func (r *storage) GetPreviousTopkek(ctx context.Context, chatID int64, topkekID int64) (*Topkek, error) {
+	var res []Topkek
+
+	err := r.db.SelectContext(ctx, &res, `
+select 
+	id,
+	name,
+	chat_id,
+	message_id,
+	author_id,
+	created_at,
+	status
+from topkek
+where chat_id = $1
+	and id < $2
+order by id desc
+limit 1
+`,
+		chatID,
+		topkekID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select topkek: %w", err)
+	}
+
+	if len(res) == 0 {
+		return nil, &ErrNotFound{}
+	}
+
+	return &res[0], nil
+}
+
 func (r *storage) GetTopkek(ctx context.Context, topkekID int64) (*Topkek, error) {
 	var res []Topkek
 
@@ -690,12 +722,19 @@ order by id
 	return topkekMessagesFromDB(res)
 }
 
-func (r *storage) DeleteTopkekMessages(ctx context.Context, topkekID int64) error {
+func (r *storage) DeleteTopkekMessages(ctx context.Context, topkekID int64, msgTypes []TopkekMessageType) error {
+	types := make([]string, 0, len(msgTypes))
+	for _, t := range msgTypes {
+		types = append(types, string(t))
+	}
+
 	_, err := r.db.ExecContext(ctx, `
 delete from topkek_message
 where topkek_id = $1
+	and type = any($2)
 `,
 		topkekID,
+		pq.Array(types),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to select topkek messages: %w", err)
@@ -781,6 +820,7 @@ inner join lateral (
 		and mr.reacts >= $3
 where m.chat_id = $4
 	and m.id >= (select min(id) from message where chat_id = $4 and message_id > $5)
+	and not (m.message_id = any(coalesce($6::bigint[], array[]::bigint[])))
 	and (m.image_hash is not null
 		or (m.video_video_hash is not null
 			and m.video_audio_hash is not null))
@@ -791,6 +831,7 @@ order by m.id
 		opts.MinReactions,
 		opts.ChatID,
 		opts.StartingMessageID,
+		pq.Array(opts.ExcludeMessageIDs),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to select message with min reactions: %w", err)
@@ -806,13 +847,15 @@ insert into chat_settings(
 	min_reactions,
 	image_hamming_distance,
 	video_hamming_distance,
-	is_autotopkek
+	is_autotopkek,
+	is_grace_offset
 ) values (
 	$1,
 	$2,
 	$3,
 	$4,
-	$5
+	$5,
+	$6
 )
 on conflict (chat_id)
 	do update 
@@ -820,13 +863,15 @@ on conflict (chat_id)
 			min_reactions = excluded.min_reactions,
 			image_hamming_distance = excluded.image_hamming_distance,
 			video_hamming_distance = excluded.video_hamming_distance,
-			is_autotopkek = excluded.is_autotopkek
+			is_autotopkek = excluded.is_autotopkek,
+			is_grace_offset = excluded.is_grace_offset
 	`,
 		settings.ChatID,
 		settings.MinReactions,
 		settings.ImageHammingDistance,
 		settings.VideoHammingDistance,
 		settings.IsAutoTopkek,
+		settings.IsGraceOffset,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to upsert chat settings: %w", err)
@@ -844,7 +889,8 @@ select
 	min_reactions,
 	image_hamming_distance,
 	video_hamming_distance,
-	is_autotopkek
+	is_autotopkek,
+	is_grace_offset
 from chat_settings
 where chat_id = $1
 `,
@@ -870,7 +916,8 @@ select
 	min_reactions,
 	image_hamming_distance,
 	video_hamming_distance,
-	is_autotopkek
+	is_autotopkek,
+	is_grace_offset
 from chat_settings
 where is_autotopkek
 `,
