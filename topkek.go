@@ -144,7 +144,7 @@ func (r *UpdateHandler) createTopkek(ctx context.Context, storage Storage, opts 
 		return fmt.Errorf("unable to get current topkek: %w", err)
 	}
 
-	err = r.startTopkek(ctx, storage, topkek, messagesToTG(sourceMessages))
+	err = r.startTopkek(ctx, storage, topkek, messagesToTopkekSrcs(sourceMessages))
 	if err != nil {
 		return fmt.Errorf("unable to start topkek: %w", err)
 	}
@@ -156,6 +156,18 @@ func messagesToTG(r []Message) []*tg.Message {
 	res := make([]*tg.Message, 0, len(r))
 	for _, msg := range r {
 		res = append(res, &msg.Raw)
+	}
+	return res
+}
+
+func messagesToTopkekSrcs(r []Message) []TopkekMessage {
+	res := make([]TopkekMessage, 0, len(r))
+	for _, msg := range r {
+		res = append(res, TopkekMessage{
+			MessageID:       msg.MessageID,
+			SourceMessageID: msg.MessageID,
+			Raw:             msg.Raw,
+		})
 	}
 	return res
 }
@@ -195,10 +207,10 @@ func maxChunkSize(n int) int {
 	return c
 }
 
-func chunkMessages(srcs []*tg.Message) [][]*tg.Message {
+func chunkMessages[T any](srcs []T) [][]T {
 	chunkSize := maxChunkSize(len(srcs))
 
-	res := [][]*tg.Message{}
+	res := [][]T{}
 	for i := 0; i < len(srcs); i += chunkSize {
 		end := i + chunkSize
 		if end > len(srcs) {
@@ -212,7 +224,7 @@ func chunkMessages(srcs []*tg.Message) [][]*tg.Message {
 
 var errNotEnoughTopkekSrcs = errors.New("not enough topkek srcs")
 
-func (r *UpdateHandler) startTopkek(ctx context.Context, storage Storage, topkek *Topkek, srcs []*tg.Message) error {
+func (r *UpdateHandler) startTopkek(ctx context.Context, storage Storage, topkek *Topkek, srcs []TopkekMessage) error {
 	if topkek.Status != TopkekStatusStarted {
 		return fmt.Errorf("invalid topkek status: %s", topkek.Status)
 	}
@@ -239,15 +251,15 @@ func (r *UpdateHandler) startTopkek(ctx context.Context, storage Storage, topkek
 	return nil
 }
 
-func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, topkek *Topkek, srcs []*tg.Message, srcOffset int) error {
-	for _, msg := range srcs {
+func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, topkek *Topkek, srcs []TopkekMessage, srcOffset int) error {
+	for _, src := range srcs {
 		err := storage.CreateTopkekMessage(ctx, TopkekMessage{
 			TopkekID:        topkek.ID,
 			ChatID:          topkek.ChatID,
-			MessageID:       msg.MessageID,
-			SourceMessageID: msg.MessageID,
+			MessageID:       src.MessageID,
+			SourceMessageID: src.SourceMessageID,
 			Type:            TopkekMessageTypeSrc,
-			Raw:             *msg,
+			Raw:             src.Raw,
 			CreatedAt:       time.Now().UTC(),
 		})
 		if err != nil {
@@ -258,7 +270,8 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 	pollAnswers := []string{}
 	files := []any{}
 
-	for i, msg := range srcs {
+	for i, src := range srcs {
+		msg := src.Raw
 		switch {
 		case len(msg.Photo) > 0:
 			photo := msg.Photo[len(msg.Photo)-1]
@@ -288,7 +301,7 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 			TopkekID:        topkek.ID,
 			ChatID:          topkek.ChatID,
 			MessageID:       msg.MessageID,
-			SourceMessageID: srcs[i].MessageID,
+			SourceMessageID: srcs[i].SourceMessageID,
 			Type:            TopkekMessageTypeDst,
 			Raw:             msg,
 			CreatedAt:       time.Now().UTC(),
@@ -419,9 +432,9 @@ func (r *UpdateHandler) finishTopkek(ctx context.Context, storage Storage, topke
 	}
 
 	if len(winners) > 1 {
-		winnerMsgs := []*tg.Message{}
+		winnerMsgs := []TopkekMessage{}
 		for _, winner := range winners {
-			winnerMsgs = append(winnerMsgs, &destMsgs[winner].Raw)
+			winnerMsgs = append(winnerMsgs, destMsgs[winner])
 		}
 
 		err := r.restartTopkek(ctx, storage, topkek, winnerMsgs)
@@ -488,7 +501,7 @@ func (r *UpdateHandler) finishTopkek(ctx context.Context, storage Storage, topke
 	return nil
 }
 
-func (r *UpdateHandler) restartTopkek(ctx context.Context, storage Storage, topkek *Topkek, srcs []*tg.Message) error {
+func (r *UpdateHandler) restartTopkek(ctx context.Context, storage Storage, topkek *Topkek, srcs []TopkekMessage) error {
 	err := storage.DeleteTopkekMessages(ctx, topkek.ID)
 	if err != nil {
 		return fmt.Errorf("unable to delete topkek old topkek msgs: %w", err)
@@ -701,7 +714,7 @@ func (r *UpdateHandler) createYearlyTopkek(ctx context.Context, storage Storage,
 		return fmt.Errorf("unable to get current topkek: %w", err)
 	}
 
-	err = r.startTopkek(ctx, storage, topkek, topkekMessagesToTG(sourceMessages))
+	err = r.startTopkek(ctx, storage, topkek, sourceMessages)
 	if err != nil {
 		return fmt.Errorf("unable to start yearly topkek: %w", err)
 	}
