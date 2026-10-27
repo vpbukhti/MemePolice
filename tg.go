@@ -37,6 +37,37 @@ func (r *UpdateHandler) sendMessage(ctx context.Context,
 	return &res, nil
 }
 
+func linkMarkup(linkText, link string) any {
+	if link == "" {
+		return nil
+	}
+	return tg.NewInlineKeyboardMarkup(
+		tg.NewInlineKeyboardRow(tg.NewInlineKeyboardButtonURL(linkText, link)),
+	)
+}
+
+func (r *UpdateHandler) sendLinkReply(ctx context.Context,
+	chatID int64,
+	replyToMessageID int,
+	text string,
+	linkText string,
+	link string,
+) (int, error) {
+	msg := tg.NewMessage(chatID, text)
+	msg.ReplyParameters = tg.ReplyParameters{
+		MessageID:                replyToMessageID,
+		AllowSendingWithoutReply: true,
+	}
+	msg.ReplyMarkup = linkMarkup(linkText, link)
+
+	res, err := r.bot.Send(msg)
+	if err != nil {
+		return 0, fmt.Errorf("unable to send link reply: %w", err)
+	}
+
+	return res.MessageID, nil
+}
+
 func (r *UpdateHandler) sendForceReply(ctx context.Context,
 	chatID int64,
 	replyToMessageID int,
@@ -253,8 +284,10 @@ var errNoMedia = errors.New("no media")
 func (r *UpdateHandler) sendMediaReply(ctx context.Context,
 	chatID int64,
 	replyMessageID int,
-	htmlCaption string,
 	msg *tg.Message,
+	caption string,
+	linkText string,
+	link string,
 ) (*tg.Message, error) {
 	replyParameters := tg.ReplyParameters{
 		MessageID:                replyMessageID,
@@ -266,16 +299,16 @@ func (r *UpdateHandler) sendMediaReply(ctx context.Context,
 	switch {
 	case len(msg.Photo) > 0:
 		photo := tg.NewPhoto(chatID, tg.FileID(msg.Photo[len(msg.Photo)-1].FileID))
-		photo.Caption = htmlCaption
-		photo.ParseMode = tg.ModeHTML
+		photo.Caption = caption
 		photo.ReplyParameters = replyParameters
+		photo.ReplyMarkup = linkMarkup(linkText, link)
 		media = photo
 
 	case msg.Video != nil:
 		video := tg.NewVideo(chatID, tg.FileID(msg.Video.FileID))
-		video.Caption = htmlCaption
-		video.ParseMode = tg.ModeHTML
+		video.Caption = caption
 		video.ReplyParameters = replyParameters
+		video.ReplyMarkup = linkMarkup(linkText, link)
 		media = video
 
 	default:

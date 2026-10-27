@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -498,7 +497,7 @@ func (r *UpdateHandler) handleAmend(ctx context.Context, storage Storage, messag
 }
 
 func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, message *tg.Message) (err error) {
-	repeatedMsg, origMsg, err := r.findOriginalMessage(ctx, storage, message)
+	_, origMsg, err := r.findOriginalMessage(ctx, storage, message)
 	if err != nil {
 		return fmt.Errorf("unable to find original message: %w", err)
 	}
@@ -506,21 +505,9 @@ func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, m
 		return nil
 	}
 
-	_, err = r.sendMessageReply(ctx, message.Chat.ID, origMsg.MessageID, ".")
-	if err != nil && !errors.Is(err, &ErrNotFound{}) {
-		return fmt.Errorf("unable to reply with text: %w", err)
-	}
-	if err != nil && errors.Is(err, &ErrNotFound{}) {
-		slog.WarnContext(ctx, "error sending reply",
-			slog.String("err", err.Error()),
-			slog.Int("repeated_msg_id", repeatedMsg.MessageID),
-			slog.Any("orig_msg", origMsg),
-		)
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
-		if err != nil {
-			return fmt.Errorf("unable to send message_deleted voice message %w", err)
-		}
-		return nil
+	_, err = r.sendOriginalMessageInfo(ctx, message.Chat.ID, message.MessageID, origMsg)
+	if err != nil {
+		return fmt.Errorf("unable to send original message info: %w", err)
 	}
 
 	return nil
@@ -537,7 +524,14 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 		return nil
 	}
 
-	mediaMsg, err := r.sendMediaReply(ctx, message.Chat.ID, origMsg.MessageID, formatOriginalMessageCaption(origMsg.Raw), &origMsg.Raw)
+	mediaMsg, err := r.sendMediaReply(ctx,
+		message.Chat.ID,
+		message.MessageID,
+		&origMsg.Raw,
+		formatOriginalMessageInfo(origMsg.Raw),
+		originalMessageLinkText,
+		messageLink(message.Chat.ID, origMsg.MessageID),
+	)
 	if err != nil && !errors.Is(err, &ErrNotFound{}) && !errors.Is(err, errNoMedia) {
 		return fmt.Errorf("unable to send original media: %w", err)
 	}
@@ -547,9 +541,9 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 			slog.Int("repeated_msg_id", repeatedMsg.MessageID),
 			slog.Any("orig_msg", origMsg),
 		)
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
+		_, err = r.sendOriginalMessageInfo(ctx, message.Chat.ID, message.MessageID, origMsg)
 		if err != nil {
-			return fmt.Errorf("unable to send message_deleted voice message %w", err)
+			return fmt.Errorf("unable to send original message info: %w", err)
 		}
 		return nil
 	}
@@ -568,17 +562,44 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 	return nil
 }
 
-func formatOriginalMessageCaption(msg tg.Message) string {
+func formatOriginalMessageInfo(msg tg.Message) string {
 	sentAt := time.Unix(msg.Date, 0).UTC().Format("02.01.2006 15:04 UTC")
 
-	switch {
-	case msg.From == nil:
+	if msg.From == nil {
 		return sentAt
-	case msg.From.UserName != "":
-		return fmt.Sprintf("@%s %s", msg.From.UserName, sentAt)
-	default:
-		return fmt.Sprintf(`<a href="tg://user?id=%d">%s</a> %s`, msg.From.ID, html.EscapeString(msg.From.FirstName), sentAt)
 	}
+
+	author := strings.TrimSpace(msg.From.FirstName + " " + msg.From.LastName)
+	if author == "" {
+		author = msg.From.UserName
+	}
+	if author == "" {
+		return sentAt
+	}
+
+	return fmt.Sprintf("%s %s", author, sentAt)
+}
+
+const originalMessageLinkText = "Оригинал"
+
+func messageLink(chatID int64, messageID int) string {
+	const supergroupChatIDPrefix = -1000000000000
+
+	if chatID > supergroupChatIDPrefix {
+		return ""
+	}
+
+	return fmt.Sprintf("https://t.me/c/%d/%d", supergroupChatIDPrefix-chatID, messageID)
+}
+
+func (r *UpdateHandler) sendOriginalMessageInfo(ctx context.Context, chatID int64, replyToMessageID int, origMsg *Message) (int, error) {
+	return r.sendLinkReply(ctx,
+		chatID,
+		replyToMessageID,
+		formatOriginalMessageInfo(origMsg.Raw),
+		originalMessageLinkText,
+		messageLink(chatID, origMsg.MessageID),
+	)
 }
 
 func (r *UpdateHandler) findRepeatedMessage(ctx context.Context, storage Storage, message *tg.Message) (*Message, error) {
@@ -717,7 +738,7 @@ func (r *UpdateHandler) handleNewVideo(ctx context.Context, storage Storage, mes
 		return &videoHash, &audioHash, fmt.Errorf("unable to send stale meme reaction: %w", err)
 	}
 
-	replyID, err := r.sendMessageReply(ctx, message.Chat.ID, origMessage.MessageID, ".")
+	replyID, err := r.sendOriginalMessageInfo(ctx, message.Chat.ID, message.MessageID, origMessage)
 	if err != nil {
 		return &videoHash, &audioHash, fmt.Errorf("unable to send stale meme reply: %w", err)
 	}
@@ -772,7 +793,7 @@ func (r *UpdateHandler) handleNewPhoto(ctx context.Context, storage Storage, mes
 		return ptr(imgHash.GetHash()), fmt.Errorf("unable to send stale meme reaction: %w", err)
 	}
 
-	replyID, err := r.sendMessageReply(ctx, message.Chat.ID, origMessage.MessageID, ".")
+	replyID, err := r.sendOriginalMessageInfo(ctx, message.Chat.ID, message.MessageID, origMessage)
 	if err != nil {
 		return ptr(imgHash.GetHash()), fmt.Errorf("unable to send stale meme reply: %w", err)
 	}
