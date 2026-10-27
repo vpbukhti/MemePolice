@@ -441,6 +441,77 @@ func (r *storage) GetLastMatchingMessageByVideoHash(ctx context.Context, chatID 
 	return r.getMatchingMessageByVideoHash(ctx, chatID, videoHash, audioHash, hdist, "desc")
 }
 
+func (r *storage) ListClosestMessagesByImageHash(ctx context.Context, chatID int64, hash uint64, hdist int, excludeMessageID int, limit int) ([]Message, error) {
+	var res []messageDB
+
+	err := r.db.SelectContext(ctx, &res, `
+select 
+	chat_id,
+	message_id,
+	data,
+	image_hash,
+	video_video_hash,
+	video_audio_hash,
+	created_at,
+	updated_at
+from message
+where image_hash <@ ($1, $2)
+	and image_hash is not null
+	and chat_id = $3
+	and message_id <> $4
+order by image_hash <-> $1, message_id desc
+limit $5
+`,
+		int64(hash),
+		hdist,
+		chatID,
+		excludeMessageID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select closest messages by image hash: %w", err)
+	}
+
+	return messagesFromDB(res)
+}
+
+func (r *storage) ListClosestMessagesByVideoHash(ctx context.Context, chatID int64, videoHash, audioHash uint64, hdist int, excludeMessageID int, limit int) ([]Message, error) {
+	var res []messageDB
+
+	err := r.db.SelectContext(ctx, &res, `
+select 
+	chat_id,
+	message_id,
+	data,
+	image_hash,
+	video_video_hash,
+	video_audio_hash,
+	created_at,
+	updated_at
+from message
+where video_video_hash <@ ($1, $3)
+	and video_video_hash is not null
+	and video_audio_hash <@ ($2, $3)
+	and video_audio_hash is not null
+	and chat_id = $4
+	and message_id <> $5
+order by greatest(video_video_hash <-> $1, video_audio_hash <-> $2), message_id desc
+limit $6
+`,
+		int64(videoHash),
+		int64(audioHash),
+		hdist,
+		chatID,
+		excludeMessageID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select closest messages by video hash: %w", err)
+	}
+
+	return messagesFromDB(res)
+}
+
 func (r *storage) CreateTopkek(ctx context.Context, tk Topkek) (int64, error) {
 	var id int64
 
@@ -893,14 +964,16 @@ insert into chat_settings(
 	image_hamming_distance,
 	video_hamming_distance,
 	is_autotopkek,
-	is_grace_offset
+	is_grace_offset,
+	reverse_lookup_limit
 ) values (
 	$1,
 	$2,
 	$3,
 	$4,
 	$5,
-	$6
+	$6,
+	$7
 )
 on conflict (chat_id)
 	do update 
@@ -909,7 +982,8 @@ on conflict (chat_id)
 			image_hamming_distance = excluded.image_hamming_distance,
 			video_hamming_distance = excluded.video_hamming_distance,
 			is_autotopkek = excluded.is_autotopkek,
-			is_grace_offset = excluded.is_grace_offset
+			is_grace_offset = excluded.is_grace_offset,
+			reverse_lookup_limit = excluded.reverse_lookup_limit
 	`,
 		settings.ChatID,
 		settings.MinReactions,
@@ -917,6 +991,7 @@ on conflict (chat_id)
 		settings.VideoHammingDistance,
 		settings.IsAutoTopkek,
 		settings.IsGraceOffset,
+		settings.ReverseLookupLimit,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to upsert chat settings: %w", err)
@@ -935,7 +1010,8 @@ select
 	image_hamming_distance,
 	video_hamming_distance,
 	is_autotopkek,
-	is_grace_offset
+	is_grace_offset,
+	reverse_lookup_limit
 from chat_settings
 where chat_id = $1
 `,
@@ -962,7 +1038,8 @@ select
 	image_hamming_distance,
 	video_hamming_distance,
 	is_autotopkek,
-	is_grace_offset
+	is_grace_offset,
+	reverse_lookup_limit
 from chat_settings
 where is_autotopkek
 `,

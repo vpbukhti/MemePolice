@@ -90,6 +90,8 @@ type Storage interface {
 	GetLastMatchingMessageByImageHash(ctx context.Context, chatID int64, hash uint64, hdist int) (*Message, error)
 	GetFirstMatchingMessageByVideoHash(ctx context.Context, chatID int64, videoHash, audioHash uint64, hdist int) (*Message, error)
 	GetLastMatchingMessageByVideoHash(ctx context.Context, chatID int64, videoHash, audioHash uint64, hdist int) (*Message, error)
+	ListClosestMessagesByImageHash(ctx context.Context, chatID int64, hash uint64, hdist int, excludeMessageID int, limit int) ([]Message, error)
+	ListClosestMessagesByVideoHash(ctx context.Context, chatID int64, videoHash, audioHash uint64, hdist int, excludeMessageID int, limit int) ([]Message, error)
 	GetMessage(ctx context.Context, chatID int64, messageID int) (*Message, error)
 	GetFirstChatMessageID(ctx context.Context, chatID int64) (int, error)
 
@@ -175,6 +177,7 @@ func defaultChatSettings(chatID int64) ChatSettings {
 		VideoHammingDistance: 11,
 		IsAutoTopkek:         false,
 		IsGraceOffset:        false,
+		ReverseLookupLimit:   3,
 	}
 }
 
@@ -185,6 +188,7 @@ type ChatSettings struct {
 	VideoHammingDistance int   `db:"video_hamming_distance"`
 	IsAutoTopkek         bool  `db:"is_autotopkek"`
 	IsGraceOffset        bool  `db:"is_grace_offset"`
+	ReverseLookupLimit   int   `db:"reverse_lookup_limit"`
 }
 
 type SettingPrompt struct {

@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"log/slog"
+	"math/bits"
 	"mime"
 	"os"
 	"path"
@@ -388,6 +389,12 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 			return fmt.Errorf("unable to handle why command: %w", err)
 		}
 
+	case "why_not":
+		err := r.handleWhyNotCommand(ctx, storage, message)
+		if err != nil {
+			return fmt.Errorf("unable to handle why not command: %w", err)
+		}
+
 	case "why_the_fuck":
 		err := r.handleWhyTheFuckCommand(ctx, storage, message)
 		if err != nil {
@@ -452,6 +459,12 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 		err := r.handleChatSettingsNumeric(ctx, storage, message, numericSettings["video_hamming_distance"])
 		if err != nil {
 			return fmt.Errorf("unable to handle chat settings video hamming distance: %w", err)
+		}
+
+	case "setrevlimit":
+		err := r.handleChatSettingsNumeric(ctx, storage, message, numericSettings["reverse_lookup_limit"])
+		if err != nil {
+			return fmt.Errorf("unable to handle chat settings reverse lookup limit: %w", err)
 		}
 
 	case "autotopkek":
@@ -560,6 +573,150 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 	}()
 
 	return nil
+}
+
+const whyNotTimeout = time.Minute
+
+var whyNotHammingDistances = []int{2, 4, 8, 16, 32, 64}
+
+func (r *UpdateHandler) handleWhyNotCommand(ctx context.Context, storage Storage, message *tg.Message) error {
+	if message.ReplyToMessage == nil {
+		err := r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
+		if err != nil {
+			return fmt.Errorf("unable to send no_reply voice message %w", err)
+		}
+		return nil
+	}
+
+	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
+	if err != nil {
+		return fmt.Errorf("unable to get or create chat settings: %w", err)
+	}
+
+	selectedMsg, err := storage.GetMessage(ctx, message.Chat.ID, message.ReplyToMessage.MessageID)
+	if err != nil && !errors.Is(err, &ErrNotFound{}) {
+		return fmt.Errorf("unable to get selected message: %w", err)
+	}
+
+	var hits []Message
+	if selectedMsg != nil {
+		hits, err = r.findClosestMessages(ctx, storage, selectedMsg, chatSettings.ReverseLookupLimit)
+		if err != nil {
+			return fmt.Errorf("unable to find closest messages: %w", err)
+		}
+	}
+
+	if len(hits) == 0 {
+		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
+		if err != nil {
+			return fmt.Errorf("unable to send no_repeat voice message %w", err)
+		}
+		return nil
+	}
+
+	for _, hit := range hits {
+		err := r.sendWhyNotHit(ctx, message, selectedMsg, &hit)
+		if err != nil {
+			return fmt.Errorf("unable to send why not hit: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (r *UpdateHandler) findClosestMessages(ctx context.Context, storage Storage, msg *Message, limit int) ([]Message, error) {
+	var res []Message
+
+	for _, hdist := range whyNotHammingDistances {
+		var err error
+
+		switch {
+		case msg.ImageHash != nil:
+			res, err = storage.ListClosestMessagesByImageHash(ctx, msg.ChatID, *msg.ImageHash, hdist, msg.MessageID, limit)
+
+		case msg.VideoVideoHash != nil && msg.VideoAudioHash != nil:
+			res, err = storage.ListClosestMessagesByVideoHash(ctx, msg.ChatID, *msg.VideoVideoHash, *msg.VideoAudioHash, hdist, msg.MessageID, limit)
+
+		default:
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("unable to list closest messages: %w", err)
+		}
+
+		if len(res) >= limit {
+			break
+		}
+	}
+
+	return res, nil
+}
+
+func (r *UpdateHandler) sendWhyNotHit(ctx context.Context, message *tg.Message, selectedMsg *Message, hit *Message) error {
+	caption := formatWhyNotInfo(*selectedMsg, *hit)
+	link := messageLink(message.Chat.ID, hit.MessageID)
+
+	var replyID int
+
+	mediaMsg, err := r.sendMediaReply(ctx, message.Chat.ID, message.MessageID, &hit.Raw, caption, originalMessageLinkText, link)
+	if err != nil && !errors.Is(err, &ErrNotFound{}) && !errors.Is(err, errNoMedia) {
+		return fmt.Errorf("unable to send hit media: %w", err)
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "error sending hit media",
+			slog.String("err", err.Error()),
+			slog.Any("hit", hit),
+		)
+		replyID, err = r.sendLinkReply(ctx, message.Chat.ID, message.MessageID, caption, originalMessageLinkText, link)
+		if err != nil {
+			return fmt.Errorf("unable to send hit info: %w", err)
+		}
+	} else {
+		replyID = mediaMsg.MessageID
+	}
+
+	go func() {
+		select {
+		case <-time.After(whyNotTimeout):
+		case <-ctx.Done():
+		}
+		err := r.deleteMessage(ctx, message.Chat.ID, replyID)
+		if err != nil {
+			slog.ErrorContext(ctx, "unable to delete why not hit", slog.String("err", err.Error()))
+		}
+	}()
+
+	return nil
+}
+
+func formatWhyNotInfo(selectedMsg Message, hit Message) string {
+	lines := []string{formatOriginalMessageInfo(hit.Raw)}
+
+	switch {
+	case hit.ImageHash != nil && selectedMsg.ImageHash != nil:
+		lines = append(lines, formatHashComparison("Изображение", *hit.ImageHash, *selectedMsg.ImageHash))
+
+	case hit.VideoVideoHash != nil && hit.VideoAudioHash != nil &&
+		selectedMsg.VideoVideoHash != nil && selectedMsg.VideoAudioHash != nil:
+		lines = append(lines,
+			formatHashComparison("Видео", *hit.VideoVideoHash, *selectedMsg.VideoVideoHash),
+			formatHashComparison("Аудио", *hit.VideoAudioHash, *selectedMsg.VideoAudioHash),
+		)
+	}
+
+	return strings.Join(lines, "\n\n")
+}
+
+func formatHashComparison(label string, origHash, selectedHash uint64) string {
+	likeness := 64 - bits.OnesCount64(origHash^selectedHash)
+
+	return fmt.Sprintf("%s:\n%016x\n%016x\nСхожесть: %d/64 (%.0f%%)",
+		label,
+		origHash,
+		selectedHash,
+		likeness,
+		float64(likeness)*100/64,
+	)
 }
 
 func formatOriginalMessageInfo(msg tg.Message) string {
@@ -837,12 +994,14 @@ func formatChatSettings(settings ChatSettings) string {
 * Льготный период: %v
 * Порог реакций: %d
 * Порог схожести изображений: %d
-* Порог схожести видео: %d`,
+* Порог схожести видео: %d
+* Лимит обратного поиска: %d`,
 		settings.IsAutoTopkek,
 		settings.IsGraceOffset,
 		settings.MinReactions,
 		settings.ImageHammingDistance,
 		settings.VideoHammingDistance,
+		settings.ReverseLookupLimit,
 	)
 }
 
@@ -872,6 +1031,8 @@ func (r *UpdateHandler) sendOutChatSettings(ctx context.Context, storage Storage
 type numericSetting struct {
 	Name  string
 	Label string
+	Min   int
+	Max   int
 	Get   func(settings ChatSettings) int
 	Set   func(settings *ChatSettings, value int)
 }
@@ -880,20 +1041,34 @@ var numericSettings = map[string]numericSetting{
 	"min_reactions": {
 		Name:  "min_reactions",
 		Label: "порог реакций",
+		Min:   0,
+		Max:   100,
 		Get:   func(settings ChatSettings) int { return settings.MinReactions },
 		Set:   func(settings *ChatSettings, value int) { settings.MinReactions = value },
 	},
 	"image_hamming_distance": {
 		Name:  "image_hamming_distance",
 		Label: "порог схожести изображений",
+		Min:   0,
+		Max:   64,
 		Get:   func(settings ChatSettings) int { return settings.ImageHammingDistance },
 		Set:   func(settings *ChatSettings, value int) { settings.ImageHammingDistance = value },
 	},
 	"video_hamming_distance": {
 		Name:  "video_hamming_distance",
 		Label: "порог схожести видео",
+		Min:   0,
+		Max:   64,
 		Get:   func(settings ChatSettings) int { return settings.VideoHammingDistance },
 		Set:   func(settings *ChatSettings, value int) { settings.VideoHammingDistance = value },
+	},
+	"reverse_lookup_limit": {
+		Name:  "reverse_lookup_limit",
+		Label: "лимит обратного поиска",
+		Min:   1,
+		Max:   10,
+		Get:   func(settings ChatSettings) int { return settings.ReverseLookupLimit },
+		Set:   func(settings *ChatSettings, value int) { settings.ReverseLookupLimit = value },
 	},
 }
 
@@ -924,7 +1099,7 @@ func (r *UpdateHandler) handleChatSettingsNumeric(ctx context.Context, storage S
 		message.Chat.ID,
 		message.MessageID,
 		fmt.Sprintf("Введи %s", setting.Label),
-		fmt.Sprintf("Сейчас: %d", setting.Get(*chatSettings)),
+		fmt.Sprintf("Сейчас: %d (%d–%d)", setting.Get(*chatSettings), setting.Min, setting.Max),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to send setting prompt: %w", err)
@@ -993,7 +1168,7 @@ func (r *UpdateHandler) setNumericSetting(ctx context.Context, storage Storage, 
 		return fmt.Errorf("unable to get or create chat settings: %w", err)
 	}
 
-	setting.Set(chatSettings, max(0, value))
+	setting.Set(chatSettings, min(max(setting.Min, value), setting.Max))
 
 	err = storage.UpsertChatSettings(ctx, *chatSettings)
 	if err != nil {
