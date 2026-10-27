@@ -306,7 +306,7 @@ func (r *UpdateHandler) deleteMessage(_ context.Context, chatID int64, messageID
 
 func (r *UpdateHandler) sendMediaGroup(ctx context.Context,
 	chatID int64,
-	files []any,
+	files []tg.InputMedia,
 ) ([]tg.Message, error) {
 	msgs, err := r.bot.SendMediaGroup(tg.NewMediaGroup(chatID, files))
 	if err != nil {

@@ -268,17 +268,17 @@ func (r *UpdateHandler) sendTopkekChunk(ctx context.Context, storage Storage, to
 	}
 
 	pollAnswers := []string{}
-	files := []any{}
+	files := []tg.InputMedia{}
 
 	for i, src := range srcs {
 		msg := src.Raw
 		switch {
 		case len(msg.Photo) > 0:
 			photo := msg.Photo[len(msg.Photo)-1]
-			files = append(files, tg.NewInputMediaPhoto(tg.FileID(photo.FileID)))
+			files = append(files, ptr(tg.NewInputMediaPhoto(tg.FileID(photo.FileID))))
 
 		case msg.Video != nil:
-			files = append(files, tg.NewInputMediaVideo(tg.FileID(msg.Video.FileID)))
+			files = append(files, ptr(tg.NewInputMediaVideo(tg.FileID(msg.Video.FileID))))
 
 		default:
 			continue
@@ -589,16 +589,16 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 func (r *UpdateHandler) sendTemporaryMediaGroup(ctx context.Context, chatID int64, messages []*tg.Message, timeout time.Duration) error {
 	chunks := chunkMessages(messages)
 	for _, chunk := range chunks {
-		files := []any{}
+		files := []tg.InputMedia{}
 
 		for _, msg := range chunk {
 			switch {
 			case len(msg.Photo) > 0:
 				photo := msg.Photo[len(msg.Photo)-1]
-				files = append(files, tg.NewInputMediaPhoto(tg.FileID(photo.FileID)))
+				files = append(files, ptr(tg.NewInputMediaPhoto(tg.FileID(photo.FileID))))
 
 			case msg.Video != nil:
-				files = append(files, tg.NewInputMediaVideo(tg.FileID(msg.Video.FileID)))
+				files = append(files, ptr(tg.NewInputMediaVideo(tg.FileID(msg.Video.FileID))))
 
 			default:
 				continue

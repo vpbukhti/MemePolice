@@ -3,7 +3,7 @@ module github.com/NinaLeven/MemePolice
 go 1.23.2
 
 require (
-	github.com/OvyFlash/telegram-bot-api v0.0.0-20241219171906-3f2ca0c14ada
+	github.com/OvyFlash/telegram-bot-api v0.0.0-20260826195316-83c4eada97a1
 	github.com/corona10/goimagehash v1.1.0
 	github.com/go-fingerprint/fingerprint v0.0.0-20140803133125-29397256b7ff
 	github.com/google/uuid v1.6.0
