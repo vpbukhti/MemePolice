@@ -1120,7 +1120,7 @@ func (r *UpdateHandler) handleChatSettingsNumeric(ctx context.Context, storage S
 			return nil
 		}
 
-		err = r.setNumericSetting(ctx, storage, message.Chat.ID, setting, value)
+		err = r.setNumericSetting(ctx, storage, message, setting, value)
 		if err != nil {
 			return fmt.Errorf("unable to set numeric setting: %w", err)
 		}
@@ -1191,16 +1191,21 @@ func (r *UpdateHandler) handleSettingPromptReply(ctx context.Context, storage St
 		return fmt.Errorf("unable to delete setting prompt: %w", err)
 	}
 
-	err = r.setNumericSetting(ctx, storage, message.Chat.ID, setting, value)
+	err = r.setNumericSetting(ctx, storage, message, setting, value)
 	if err != nil {
 		return fmt.Errorf("unable to set numeric setting: %w", err)
+	}
+
+	err = r.deleteMessage(ctx, prompt.ChatID, prompt.MessageID)
+	if err != nil {
+		slog.WarnContext(ctx, "unable to delete setting prompt message", slog.String("err", err.Error()))
 	}
 
 	return nil
 }
 
-func (r *UpdateHandler) setNumericSetting(ctx context.Context, storage Storage, chatID int64, setting numericSetting, value int) error {
-	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, chatID)
+func (r *UpdateHandler) setNumericSetting(ctx context.Context, storage Storage, message *tg.Message, setting numericSetting, value int) error {
+	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
 	if err != nil {
 		return fmt.Errorf("unable to get or create chat settings: %w", err)
 	}
@@ -1212,7 +1217,12 @@ func (r *UpdateHandler) setNumericSetting(ctx context.Context, storage Storage, 
 		return fmt.Errorf("unable to update chat settings: %w", err)
 	}
 
-	err = r.sendOutChatSettings(ctx, storage, chatID)
+	_, err = r.sendMessageReplyWithMarkup(ctx,
+		message.Chat.ID,
+		message.MessageID,
+		formatChatSettings(*chatSettings),
+		tg.NewRemoveKeyboard(true),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to send out chat settings: %w", err)
 	}

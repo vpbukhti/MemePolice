@@ -228,6 +228,27 @@ func (r *UpdateHandler) sendMessageReply(ctx context.Context,
 	return msg.MessageID, nil
 }
 
+func (r *UpdateHandler) sendMessageReplyWithMarkup(ctx context.Context,
+	chatID int64,
+	replyToMessageID int,
+	text string,
+	markup any,
+) (int, error) {
+	msg := tg.NewMessage(chatID, text)
+	msg.ReplyParameters = tg.ReplyParameters{
+		MessageID:                replyToMessageID,
+		AllowSendingWithoutReply: true,
+	}
+	msg.ReplyMarkup = markup
+
+	res, err := r.bot.Send(msg)
+	if err != nil {
+		return 0, fmt.Errorf("unable to send message reply: %w", err)
+	}
+
+	return res.MessageID, nil
+}
+
 func (r *UpdateHandler) sendPhotoRepy(ctx context.Context,
 	chatID int64,
 	replyMessageID int,
