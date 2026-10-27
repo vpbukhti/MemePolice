@@ -476,27 +476,15 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 }
 
 func (r *UpdateHandler) handleAmend(ctx context.Context, storage Storage, message *tg.Message) (err error) {
-	if message.ReplyToMessage == nil {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
-		if err != nil {
-			return fmt.Errorf("unable to send no_reply voice message %w", err)
-		}
+	repeatedMsg, err := r.findRepeatedMessage(ctx, storage, message)
+	if err != nil {
+		return fmt.Errorf("unable to find repeated message: %w", err)
+	}
+	if repeatedMsg == nil {
 		return nil
 	}
 
-	_, err = storage.GetMessage(ctx, message.Chat.ID, message.ReplyToMessage.MessageID)
-	if err != nil && !errors.Is(err, &ErrNotFound{}) {
-		return fmt.Errorf("unable to get message hash by id: %w", err)
-	}
-	if err != nil && errors.Is(err, &ErrNotFound{}) {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
-		if err != nil {
-			return fmt.Errorf("unable to send no_repeat voice message %w", err)
-		}
-		return nil
-	}
-
-	err = r.unsendReaction(ctx, storage, message.Chat.ID, message.ReplyToMessage.MessageID)
+	err = r.unsendReaction(ctx, storage, message.Chat.ID, repeatedMsg.MessageID)
 	if err != nil {
 		return fmt.Errorf("unable to unsend message reaction: %w", err)
 	}
@@ -505,7 +493,7 @@ func (r *UpdateHandler) handleAmend(ctx context.Context, storage Storage, messag
 }
 
 func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, message *tg.Message) (err error) {
-	origMsg, err := r.findOriginalMessage(ctx, storage, message)
+	repeatedMsg, origMsg, err := r.findOriginalMessage(ctx, storage, message)
 	if err != nil {
 		return fmt.Errorf("unable to find original message: %w", err)
 	}
@@ -520,7 +508,7 @@ func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, m
 	if err != nil && errors.Is(err, &ErrNotFound{}) {
 		slog.WarnContext(ctx, "error sending reply",
 			slog.String("err", err.Error()),
-			slog.Int("repeated_msg_id", message.ReplyToMessage.MessageID),
+			slog.Int("repeated_msg_id", repeatedMsg.MessageID),
 			slog.Any("orig_msg", origMsg),
 		)
 		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
@@ -536,7 +524,7 @@ func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, m
 const whyTheFuckMediaTimeout = time.Minute
 
 func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Storage, message *tg.Message) error {
-	origMsg, err := r.findOriginalMessage(ctx, storage, message)
+	repeatedMsg, origMsg, err := r.findOriginalMessage(ctx, storage, message)
 	if err != nil {
 		return fmt.Errorf("unable to find original message: %w", err)
 	}
@@ -551,7 +539,7 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 	if err != nil {
 		slog.WarnContext(ctx, "error sending original media",
 			slog.String("err", err.Error()),
-			slog.Int("repeated_msg_id", message.ReplyToMessage.MessageID),
+			slog.Int("repeated_msg_id", repeatedMsg.MessageID),
 			slog.Any("orig_msg", origMsg),
 		)
 		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
@@ -588,18 +576,24 @@ func formatOriginalMessageCaption(msg tg.Message) string {
 	}
 }
 
-func (r *UpdateHandler) findOriginalMessage(ctx context.Context, storage Storage, message *tg.Message) (*Message, error) {
-	if message.ReplyToMessage == nil {
-		err := r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
+func (r *UpdateHandler) findRepeatedMessage(ctx context.Context, storage Storage, message *tg.Message) (*Message, error) {
+	var repeatedMsg *Message
+	var err error
+
+	if message.ReplyToMessage != nil {
+		repeatedMsg, err = storage.GetMessage(ctx, message.Chat.ID, message.ReplyToMessage.MessageID)
+	} else {
+		repeatedMsg, err = storage.GetLastMessageWithUserReaction(ctx, message.Chat.ID, r.bot.Self.ID, RepeatedMemeEmoji)
+	}
+	if err != nil && !errors.Is(err, &ErrNotFound{}) {
+		return nil, fmt.Errorf("unable to get repeated message: %w", err)
+	}
+	if err != nil && errors.Is(err, &ErrNotFound{}) && message.ReplyToMessage == nil {
+		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
 		if err != nil {
 			return nil, fmt.Errorf("unable to send no_reply voice message %w", err)
 		}
 		return nil, nil
-	}
-
-	repeatedMsg, err := storage.GetMessage(ctx, message.Chat.ID, message.ReplyToMessage.MessageID)
-	if err != nil && !errors.Is(err, &ErrNotFound{}) {
-		return nil, fmt.Errorf("unable to get message hash by id: %w", err)
 	}
 	if err != nil && errors.Is(err, &ErrNotFound{}) {
 		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
@@ -609,9 +603,21 @@ func (r *UpdateHandler) findOriginalMessage(ctx context.Context, storage Storage
 		return nil, nil
 	}
 
+	return repeatedMsg, nil
+}
+
+func (r *UpdateHandler) findOriginalMessage(ctx context.Context, storage Storage, message *tg.Message) (*Message, *Message, error) {
+	repeatedMsg, err := r.findRepeatedMessage(ctx, storage, message)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to find repeated message: %w", err)
+	}
+	if repeatedMsg == nil {
+		return nil, nil, nil
+	}
+
 	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get or create chat settings: %w", err)
+		return nil, nil, fmt.Errorf("unable to get or create chat settings: %w", err)
 	}
 
 	var origMsg *Message
@@ -626,29 +632,29 @@ func (r *UpdateHandler) findOriginalMessage(ctx context.Context, storage Storage
 	default:
 		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
 		if err != nil {
-			return nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
+			return nil, nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil && !errors.Is(err, &ErrNotFound{}) {
-		return nil, fmt.Errorf("unable to get first matching message image hash: %w", err)
+		return nil, nil, fmt.Errorf("unable to get first matching message image hash: %w", err)
 	}
 	if err != nil && errors.Is(err, &ErrNotFound{}) {
 		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
 		if err != nil {
-			return nil, fmt.Errorf("unable to send message_deleted voice message %w", err)
+			return nil, nil, fmt.Errorf("unable to send message_deleted voice message %w", err)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	if origMsg.MessageID == repeatedMsg.MessageID {
 		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
 		if err != nil {
-			return nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
+			return nil, nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	return origMsg, nil
+	return repeatedMsg, origMsg, nil
 }
 
 const deleteAutoReplyTimeout = time.Hour

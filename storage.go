@@ -785,6 +785,51 @@ on conflict (chat_id, message_id, user_id)
 	return nil
 }
 
+func (r *storage) GetLastMessageWithUserReaction(ctx context.Context, chatID int64, userID int64, emoji string) (*Message, error) {
+	reactions, err := json.Marshal([]map[string]string{
+		{"emoji": emoji},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal reactions: %w", err)
+	}
+
+	var res []messageDB
+
+	err = r.db.SelectContext(ctx, &res, `
+select 
+	m.chat_id,
+	m.message_id,
+	m.data,
+	m.image_hash,
+	m.video_video_hash,
+	m.video_audio_hash,
+	m.created_at,
+	m.updated_at
+from message as m
+inner join message_reactions as mr
+	on mr.chat_id = m.chat_id
+		and mr.message_id = m.message_id
+where m.chat_id = $1
+	and mr.user_id = $2
+	and mr.reactions @> $3::jsonb
+order by mr.message_id desc
+limit 1
+`,
+		chatID,
+		userID,
+		string(reactions),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select message by user reaction: %w", err)
+	}
+
+	if len(res) == 0 {
+		return nil, &ErrNotFound{}
+	}
+
+	return messageFromDB(res[0])
+}
+
 func (r *storage) ListMessagesWithReactionCount(ctx context.Context, opts ListMessagesWithReactionCountOptions) ([]Message, error) {
 	var res []messageDB
 

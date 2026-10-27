@@ -94,6 +94,7 @@ type Storage interface {
 	GetFirstChatMessageID(ctx context.Context, chatID int64) (int, error)
 
 	UpsertMessageReactions(ctx context.Context, msg MessageReactions) error
+	GetLastMessageWithUserReaction(ctx context.Context, chatID int64, userID int64, emoji string) (*Message, error)
 	ListMessagesWithReactionCount(ctx context.Context, opts ListMessagesWithReactionCountOptions) ([]Message, error)
 
 	SetLastUpdateID(ctx context.Context, lastUpdateID int) error
