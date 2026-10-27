@@ -183,7 +183,7 @@ func (r *UpdateHandler) sendVoiceMessageReply(ctx context.Context,
 	replyToMessageID int,
 	name string,
 	data []byte,
-) error {
+) (int, error) {
 	voice := tg.NewVoice(chatID, tg.FileBytes{
 		Name:  name,
 		Bytes: data,
@@ -192,17 +192,17 @@ func (r *UpdateHandler) sendVoiceMessageReply(ctx context.Context,
 		MessageID: replyToMessageID,
 	}
 
-	_, err := r.bot.Send(voice)
+	res, err := r.bot.Send(voice)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			return &ErrNotFound{
+			return 0, &ErrNotFound{
 				Err: fmt.Errorf("unable to send text message: %w", err),
 			}
 		}
-		return fmt.Errorf("unable to send audio message: %w", err)
+		return 0, fmt.Errorf("unable to send audio message: %w", err)
 	}
 
-	return nil
+	return res.MessageID, nil
 }
 
 func (r *UpdateHandler) sendMessageReply(ctx context.Context,

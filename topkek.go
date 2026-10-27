@@ -55,21 +55,21 @@ func (r *UpdateHandler) handleCreateTopkek(ctx context.Context, storage Storage,
 		return fmt.Errorf("unable to create topkek: %w", err)
 	}
 	if err != nil && errors.Is(err, errNotEnoughTopkekSrcs) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо хотя бы два мема")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "надо хотя бы два мема")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
 		return errNotEnoughTopkekSrcs
 	}
 	if err != nil && errors.Is(err, errTopkekAlreadyInProgress) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
 		return errTopkekAlreadyInProgress
 	}
 	if err != nil && errors.Is(err, errNoTopkekStartMessage) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать топкек")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -355,7 +355,7 @@ func (r *UpdateHandler) handleFinishTopkek(ctx context.Context, storage Storage,
 	}
 
 	if topkek.Status != TopkekStatusStarted {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "сначала начни топкек, шкура")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "сначала начни топкек, шкура")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -557,7 +557,7 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 	}
 
 	if lastTopkek == nil && message.ReplyToMessage == nil {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать топкек")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -576,7 +576,7 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 	}
 
 	if len(sourceMessages) == 0 {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в топкек")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -656,14 +656,14 @@ func (r *UpdateHandler) handleCreateYearlyTopkek(ctx context.Context, storage St
 		return fmt.Errorf("unable to create topkek: %w", err)
 	}
 	if err != nil && errors.Is(err, errNotEnoughTopkekSrcs) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо хотя бы два мема")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "надо хотя бы два мема")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
 		return errNotEnoughTopkekSrcs
 	}
 	if err != nil && errors.Is(err, errTopkekAlreadyInProgress) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -736,7 +736,7 @@ func (r *UpdateHandler) handleYearlyPreview(ctx context.Context, storage Storage
 	}
 
 	if len(sourceMessages) == 0 {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в годовой топкек")
+		err := r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в годовой топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}

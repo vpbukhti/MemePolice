@@ -540,7 +540,7 @@ var whyNotHammingDistances = []int{2, 4, 8, 16, 32, 64}
 
 func (r *UpdateHandler) handleWhyNotCommand(ctx context.Context, storage Storage, message *tg.Message) error {
 	if message.ReplyToMessage == nil {
-		err := r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
+		err := r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
 		if err != nil {
 			return fmt.Errorf("unable to send no_reply voice message %w", err)
 		}
@@ -566,7 +566,7 @@ func (r *UpdateHandler) handleWhyNotCommand(ctx context.Context, storage Storage
 	}
 
 	if len(hits) == 0 {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
+		err = r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
 		if err != nil {
 			return fmt.Errorf("unable to send no_repeat voice message %w", err)
 		}
@@ -771,14 +771,14 @@ func (r *UpdateHandler) findRepeatedMessage(ctx context.Context, storage Storage
 		return nil, fmt.Errorf("unable to get repeated message: %w", err)
 	}
 	if err != nil && errors.Is(err, &ErrNotFound{}) && message.ReplyToMessage == nil {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
+		err = r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "no_reply", r.assets.GetAudioNoRererence())
 		if err != nil {
 			return nil, fmt.Errorf("unable to send no_reply voice message %w", err)
 		}
 		return nil, nil
 	}
 	if err != nil && errors.Is(err, &ErrNotFound{}) {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
+		err = r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
 		if err != nil {
 			return nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
 		}
@@ -812,7 +812,7 @@ func (r *UpdateHandler) findOriginalMessage(ctx context.Context, storage Storage
 		origMsg, err = storage.GetFirstMatchingMessageByVideoHash(ctx, message.Chat.ID, *repeatedMsg.VideoVideoHash, *repeatedMsg.VideoAudioHash, chatSettings.VideoHammingDistance)
 
 	default:
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
+		err = r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
 		}
@@ -822,14 +822,14 @@ func (r *UpdateHandler) findOriginalMessage(ctx context.Context, storage Storage
 		return nil, nil, fmt.Errorf("unable to get first matching message image hash: %w", err)
 	}
 	if err != nil && errors.Is(err, &ErrNotFound{}) {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
+		err = r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "message_deleted", r.assets.GetAudioMessageDeleted())
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to send message_deleted voice message %w", err)
 		}
 		return nil, nil, nil
 	}
 	if origMsg.MessageID == repeatedMsg.MessageID {
-		err = r.sendVoiceMessageReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
+		err = r.sendErrorVoiceReply(ctx, message.Chat.ID, message.MessageID, "no_repeat", r.assets.GetAudioNoRepeat())
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to send no_repeat voice message %w", err)
 		}
@@ -1057,7 +1057,7 @@ func (r *UpdateHandler) handleChatSettingsNumeric(ctx context.Context, storage S
 	if strings.TrimSpace(message.CommandArguments()) != "" {
 		value, err := strconv.Atoi(strings.TrimSpace(message.CommandArguments()))
 		if err != nil {
-			_, err = r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
+			err = r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
 			if err != nil {
 				return fmt.Errorf("unable to send int parse error reply: %w", err)
 			}
@@ -1123,7 +1123,7 @@ func (r *UpdateHandler) handleSettingPromptReply(ctx context.Context, storage St
 
 	value, err := strconv.Atoi(strings.TrimSpace(message.Text))
 	if err != nil {
-		_, err = r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
+		err = r.sendErrorReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
 		if err != nil {
 			return fmt.Errorf("unable to send int parse error reply: %w", err)
 		}
@@ -1216,6 +1216,8 @@ func (r *UpdateHandler) handleChatSettingsGraceOffset(ctx context.Context, stora
 	return nil
 }
 
+const errorReplyTimeout = time.Minute
+
 func (r *UpdateHandler) deleteMessageLater(ctx context.Context, chatID int64, messageID int, timeout time.Duration) {
 	go func() {
 		select {
@@ -1230,4 +1232,26 @@ func (r *UpdateHandler) deleteMessageLater(ctx context.Context, chatID int64, me
 			)
 		}
 	}()
+}
+
+func (r *UpdateHandler) sendErrorReply(ctx context.Context, chatID int64, replyToMessageID int, text string) error {
+	replyID, err := r.sendMessageReply(ctx, chatID, replyToMessageID, text)
+	if err != nil {
+		return err
+	}
+
+	r.deleteMessageLater(ctx, chatID, replyID, errorReplyTimeout)
+
+	return nil
+}
+
+func (r *UpdateHandler) sendErrorVoiceReply(ctx context.Context, chatID int64, replyToMessageID int, name string, data []byte) error {
+	replyID, err := r.sendVoiceMessageReply(ctx, chatID, replyToMessageID, name, data)
+	if err != nil {
+		return err
+	}
+
+	r.deleteMessageLater(ctx, chatID, replyID, errorReplyTimeout)
+
+	return nil
 }
