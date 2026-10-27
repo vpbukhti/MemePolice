@@ -113,6 +113,10 @@ type Storage interface {
 	UpsertChatSettings(ctx context.Context, settings ChatSettings) error
 	GetChatSettings(ctx context.Context, chatID int64) (*ChatSettings, error)
 	ListChatsWithAutotopkek(ctx context.Context) ([]ChatSettings, error)
+
+	CreateSettingPrompt(ctx context.Context, prompt SettingPrompt) error
+	GetSettingPrompt(ctx context.Context, chatID int64, messageID int) (*SettingPrompt, error)
+	DeleteSettingPrompt(ctx context.Context, chatID int64, messageID int) error
 }
 
 type StorageManager interface {
@@ -181,4 +185,12 @@ type ChatSettings struct {
 	VideoHammingDistance int   `db:"video_hamming_distance"`
 	IsAutoTopkek         bool  `db:"is_autotopkek"`
 	IsGraceOffset        bool  `db:"is_grace_offset"`
+}
+
+type SettingPrompt struct {
+	ChatID    int64     `db:"chat_id"`
+	MessageID int       `db:"message_id"`
+	UserID    int64     `db:"user_id"`
+	Setting   string    `db:"setting"`
+	CreatedAt time.Time `db:"created_at"`
 }

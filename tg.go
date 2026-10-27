@@ -37,6 +37,35 @@ func (r *UpdateHandler) sendMessage(ctx context.Context,
 	return &res, nil
 }
 
+func (r *UpdateHandler) sendForceReply(ctx context.Context,
+	chatID int64,
+	replyToMessageID int,
+	text string,
+	placeholder string,
+) (*tg.Message, error) {
+	msg := tg.NewMessage(chatID, text)
+	msg.ReplyParameters = tg.ReplyParameters{
+		MessageID: replyToMessageID,
+	}
+	msg.ReplyMarkup = tg.ForceReply{
+		ForceReply:            true,
+		InputFieldPlaceholder: placeholder,
+		Selective:             true,
+	}
+
+	res, err := r.bot.Send(msg)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, &ErrNotFound{
+				Err: fmt.Errorf("unable to send force reply: %w", err),
+			}
+		}
+		return nil, fmt.Errorf("unable to send force reply: %w", err)
+	}
+
+	return &res, nil
+}
+
 func (r *UpdateHandler) sendVoiceMessage(ctx context.Context,
 	chatID int64,
 	name string,

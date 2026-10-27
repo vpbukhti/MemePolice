@@ -341,6 +341,11 @@ func (r *UpdateHandler) handleMessage(ctx context.Context, storage Storage, mess
 		return fmt.Errorf("unable to handle command: %w", err)
 	}
 
+	err = r.handleSettingPromptReply(ctx, storage, message)
+	if err != nil {
+		return fmt.Errorf("unable to handle setting prompt reply: %w", err)
+	}
+
 	var imageHash, videoVideoHash, videoAudioHash *uint64
 
 	if message.From.ID != r.bot.Self.ID {
@@ -433,19 +438,19 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 		}
 
 	case "setminreacts":
-		err := r.handleChatSettingsMinReactions(ctx, storage, message)
+		err := r.handleChatSettingsNumeric(ctx, storage, message, numericSettings["min_reactions"])
 		if err != nil {
 			return fmt.Errorf("unable to handle chat settings min reactions: %w", err)
 		}
 
 	case "setimghdist":
-		err := r.handleChatSettingsImageHammingDistamce(ctx, storage, message)
+		err := r.handleChatSettingsNumeric(ctx, storage, message, numericSettings["image_hamming_distance"])
 		if err != nil {
 			return fmt.Errorf("unable to handle chat settings image hamming distance: %w", err)
 		}
 
 	case "setvidhdist":
-		err := r.handleChatSettingsVideoHammingDistamce(ctx, storage, message)
+		err := r.handleChatSettingsNumeric(ctx, storage, message, numericSettings["video_hamming_distance"])
 		if err != nil {
 			return fmt.Errorf("unable to handle chat settings video hamming distance: %w", err)
 		}
@@ -843,12 +848,48 @@ func (r *UpdateHandler) sendOutChatSettings(ctx context.Context, storage Storage
 	return nil
 }
 
-func (r *UpdateHandler) handleChatSettingsMinReactions(ctx context.Context, storage Storage, message *tg.Message) error {
-	minRections, err := strconv.Atoi(strings.Trim(message.CommandArguments(), " "))
-	if err != nil {
-		_, err = r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
+type numericSetting struct {
+	Name  string
+	Label string
+	Get   func(settings ChatSettings) int
+	Set   func(settings *ChatSettings, value int)
+}
+
+var numericSettings = map[string]numericSetting{
+	"min_reactions": {
+		Name:  "min_reactions",
+		Label: "порог реакций",
+		Get:   func(settings ChatSettings) int { return settings.MinReactions },
+		Set:   func(settings *ChatSettings, value int) { settings.MinReactions = value },
+	},
+	"image_hamming_distance": {
+		Name:  "image_hamming_distance",
+		Label: "порог схожести изображений",
+		Get:   func(settings ChatSettings) int { return settings.ImageHammingDistance },
+		Set:   func(settings *ChatSettings, value int) { settings.ImageHammingDistance = value },
+	},
+	"video_hamming_distance": {
+		Name:  "video_hamming_distance",
+		Label: "порог схожести видео",
+		Get:   func(settings ChatSettings) int { return settings.VideoHammingDistance },
+		Set:   func(settings *ChatSettings, value int) { settings.VideoHammingDistance = value },
+	},
+}
+
+func (r *UpdateHandler) handleChatSettingsNumeric(ctx context.Context, storage Storage, message *tg.Message, setting numericSetting) error {
+	if strings.TrimSpace(message.CommandArguments()) != "" {
+		value, err := strconv.Atoi(strings.TrimSpace(message.CommandArguments()))
 		if err != nil {
-			return fmt.Errorf("unable to send int parse error reply: %w", err)
+			_, err = r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
+			if err != nil {
+				return fmt.Errorf("unable to send int parse error reply: %w", err)
+			}
+			return nil
+		}
+
+		err = r.setNumericSetting(ctx, storage, message.Chat.ID, setting, value)
+		if err != nil {
+			return fmt.Errorf("unable to set numeric setting: %w", err)
 		}
 		return nil
 	}
@@ -858,22 +899,52 @@ func (r *UpdateHandler) handleChatSettingsMinReactions(ctx context.Context, stor
 		return fmt.Errorf("unable to get or create chat settings: %w", err)
 	}
 
-	chatSettings.MinReactions = max(0, minRections)
-
-	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
+	promptMsg, err := r.sendForceReply(ctx,
+		message.Chat.ID,
+		message.MessageID,
+		fmt.Sprintf("Введи %s", setting.Label),
+		fmt.Sprintf("Сейчас: %d", setting.Get(*chatSettings)),
+	)
 	if err != nil {
-		return fmt.Errorf("unable to update chat settings: %w", err)
+		return fmt.Errorf("unable to send setting prompt: %w", err)
 	}
 
-	err = r.sendOutChatSettings(ctx, storage, message.Chat.ID)
+	err = storage.CreateSettingPrompt(ctx, SettingPrompt{
+		ChatID:    message.Chat.ID,
+		MessageID: promptMsg.MessageID,
+		UserID:    message.From.ID,
+		Setting:   setting.Name,
+		CreatedAt: time.Now().UTC(),
+	})
 	if err != nil {
-		return fmt.Errorf("unable to send out chat settings: %w", err)
+		return fmt.Errorf("unable to create setting prompt: %w", err)
 	}
 
 	return nil
 }
-func (r *UpdateHandler) handleChatSettingsImageHammingDistamce(ctx context.Context, storage Storage, message *tg.Message) error {
-	dist, err := strconv.Atoi(strings.Trim(message.CommandArguments(), " "))
+
+func (r *UpdateHandler) handleSettingPromptReply(ctx context.Context, storage Storage, message *tg.Message) error {
+	if message.ReplyToMessage == nil ||
+		message.ReplyToMessage.From == nil ||
+		message.ReplyToMessage.From.ID != r.bot.Self.ID ||
+		message.IsCommand() {
+		return nil
+	}
+
+	prompt, err := storage.GetSettingPrompt(ctx, message.Chat.ID, message.ReplyToMessage.MessageID)
+	if err != nil && !errors.Is(err, &ErrNotFound{}) {
+		return fmt.Errorf("unable to get setting prompt: %w", err)
+	}
+	if err != nil && errors.Is(err, &ErrNotFound{}) || prompt.UserID != message.From.ID {
+		return nil
+	}
+
+	setting, ok := numericSettings[prompt.Setting]
+	if !ok {
+		return fmt.Errorf("unknown setting: %s", prompt.Setting)
+	}
+
+	value, err := strconv.Atoi(strings.TrimSpace(message.Text))
 	if err != nil {
 		_, err = r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
 		if err != nil {
@@ -882,49 +953,33 @@ func (r *UpdateHandler) handleChatSettingsImageHammingDistamce(ctx context.Conte
 		return nil
 	}
 
-	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
+	err = storage.DeleteSettingPrompt(ctx, prompt.ChatID, prompt.MessageID)
 	if err != nil {
-		return fmt.Errorf("unable to get or create chat settings: %w", err)
+		return fmt.Errorf("unable to delete setting prompt: %w", err)
 	}
 
-	chatSettings.ImageHammingDistance = max(0, dist)
-
-	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
+	err = r.setNumericSetting(ctx, storage, message.Chat.ID, setting, value)
 	if err != nil {
-		return fmt.Errorf("unable to update chat settings: %w", err)
-	}
-
-	err = r.sendOutChatSettings(ctx, storage, message.Chat.ID)
-	if err != nil {
-		return fmt.Errorf("unable to send out chat settings: %w", err)
+		return fmt.Errorf("unable to set numeric setting: %w", err)
 	}
 
 	return nil
 }
 
-func (r *UpdateHandler) handleChatSettingsVideoHammingDistamce(ctx context.Context, storage Storage, message *tg.Message) error {
-	dist, err := strconv.Atoi(strings.Trim(message.CommandArguments(), " "))
-	if err != nil {
-		_, err = r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "аргумент должен быть числом")
-		if err != nil {
-			return fmt.Errorf("unable to send int parse error reply: %w", err)
-		}
-		return nil
-	}
-
-	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, message.Chat.ID)
+func (r *UpdateHandler) setNumericSetting(ctx context.Context, storage Storage, chatID int64, setting numericSetting, value int) error {
+	chatSettings, err := r.getOrCreateChatSettings(ctx, storage, chatID)
 	if err != nil {
 		return fmt.Errorf("unable to get or create chat settings: %w", err)
 	}
 
-	chatSettings.VideoHammingDistance = max(0, dist)
+	setting.Set(chatSettings, max(0, value))
 
-	err = r.storage.UpsertChatSettings(ctx, *chatSettings)
+	err = storage.UpsertChatSettings(ctx, *chatSettings)
 	if err != nil {
 		return fmt.Errorf("unable to update chat settings: %w", err)
 	}
 
-	err = r.sendOutChatSettings(ctx, storage, message.Chat.ID)
+	err = r.sendOutChatSettings(ctx, storage, chatID)
 	if err != nil {
 		return fmt.Errorf("unable to send out chat settings: %w", err)
 	}

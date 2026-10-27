@@ -973,3 +973,76 @@ where is_autotopkek
 
 	return res, nil
 }
+
+func (r *storage) CreateSettingPrompt(ctx context.Context, prompt SettingPrompt) error {
+	_, err := r.db.ExecContext(ctx, `
+insert into setting_prompt(
+	chat_id,
+	message_id,
+	user_id,
+	setting,
+	created_at
+) values (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5
+)
+	`,
+		prompt.ChatID,
+		prompt.MessageID,
+		prompt.UserID,
+		prompt.Setting,
+		prompt.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert setting prompt: %w", err)
+	}
+
+	return nil
+}
+
+func (r *storage) GetSettingPrompt(ctx context.Context, chatID int64, messageID int) (*SettingPrompt, error) {
+	var res []SettingPrompt
+
+	err := r.db.SelectContext(ctx, &res, `
+select 
+	chat_id,
+	message_id,
+	user_id,
+	setting,
+	created_at
+from setting_prompt
+where chat_id = $1
+	and message_id = $2
+`,
+		chatID,
+		messageID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to select setting prompt: %w", err)
+	}
+
+	if len(res) == 0 {
+		return nil, &ErrNotFound{}
+	}
+
+	return &res[0], nil
+}
+
+func (r *storage) DeleteSettingPrompt(ctx context.Context, chatID int64, messageID int) error {
+	_, err := r.db.ExecContext(ctx, `
+delete from setting_prompt
+where chat_id = $1
+	and message_id = $2
+`,
+		chatID,
+		messageID,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to delete setting prompt: %w", err)
+	}
+
+	return nil
+}
