@@ -12,7 +12,7 @@ import (
 )
 
 func defaultTopkekName() string {
-	return fmt.Sprintf("Великий Прикол %02d.%02d.%04d",
+	return fmt.Sprintf("Топкек %02d.%02d.%04d",
 		time.Now().UTC().Day(),
 		time.Now().UTC().Month(),
 		time.Now().UTC().Year(),
@@ -62,14 +62,14 @@ func (r *UpdateHandler) handleCreateTopkek(ctx context.Context, storage Storage,
 		return errNotEnoughTopkekSrcs
 	}
 	if err != nil && errors.Is(err, errTopkekAlreadyInProgress) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "Великий Прикол уже идет")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
 		return errTopkekAlreadyInProgress
 	}
 	if err != nil && errors.Is(err, errNoTopkekStartMessage) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать Великий Прикол")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -340,7 +340,7 @@ func (r *UpdateHandler) handleFinishTopkek(ctx context.Context, storage Storage,
 	}
 
 	if topkek.Status != TopkekStatusStarted {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "сначала начни Великий Прикол, шкура")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "сначала начни топкек, шкура")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -503,12 +503,12 @@ func (r *UpdateHandler) restartTopkek(ctx context.Context, storage Storage, topk
 }
 
 func (r *UpdateHandler) handleHelp(ctx context.Context, _ Storage, message *tg.Message) error {
-	const helpText = `Великий Прикол инструкция:
-* Создай Великий Прикол - /topkek
-* По умолчанию Великий Прикол создается начиная с предыдушего
-* Вместе с командой /topkek можно передать реплай на сообщение с которого должен начаться Великий Прикол
+	const helpText = `Топкек инструкция:
+* Создай топкек - /topkek
+* По умолчанию топкек создается начиная с предыдушего
+* Вместе с командой /topkek можно передать реплай на сообщение с которого должен начаться топкек
 * Ждем сколько надо голосования
-* Завершаем Великий Прикол /stopkek`
+* Завершаем топкек /stopkek`
 
 	_, err := r.sendMessage(ctx, message.Chat.ID, helpText)
 	if err != nil {
@@ -539,7 +539,7 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 	}
 
 	if lastTopkek == nil && message.ReplyToMessage == nil {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать Великий Прикол")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "надо реплай с какого сообщения начать топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -558,7 +558,7 @@ func (r *UpdateHandler) handlePreview(ctx context.Context, storage Storage, mess
 	}
 
 	if len(sourceMessages) == 0 {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в Великий Прикол")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -624,7 +624,7 @@ func (r *UpdateHandler) handleCreateYearlyTopkek(ctx context.Context, storage St
 	}
 
 	opts := parseCreateTopkekOptions(*chatSettings, message)
-	opts.Name = fmt.Sprintf("Годовой Великий Прикол %04d",
+	opts.Name = fmt.Sprintf("Годовой Топкек %04d",
 		time.Now().UTC().Year(),
 	)
 	opts.StartingMessageID = nil
@@ -645,7 +645,7 @@ func (r *UpdateHandler) handleCreateYearlyTopkek(ctx context.Context, storage St
 		return errNotEnoughTopkekSrcs
 	}
 	if err != nil && errors.Is(err, errTopkekAlreadyInProgress) {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "Великий Прикол уже идет")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "топкек уже идет")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
@@ -718,7 +718,7 @@ func (r *UpdateHandler) handleYearlyPreview(ctx context.Context, storage Storage
 	}
 
 	if len(sourceMessages) == 0 {
-		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в годовой Великий Прикол")
+		_, err := r.sendMessageReply(ctx, message.Chat.ID, message.MessageID, "нет мемов в годовой топкек")
 		if err != nil {
 			return fmt.Errorf("unable to send message reply: %w", err)
 		}
