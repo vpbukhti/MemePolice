@@ -395,12 +395,6 @@ func (r *UpdateHandler) handleCommand(ctx context.Context, storage Storage, mess
 			return fmt.Errorf("unable to handle why not command: %w", err)
 		}
 
-	case "why_the_fuck":
-		err := r.handleWhyTheFuckCommand(ctx, storage, message)
-		if err != nil {
-			return fmt.Errorf("unable to handle why the fuck command: %w", err)
-		}
-
 	case "amend":
 		err := r.handleAmend(ctx, storage, message)
 		if err != nil {
@@ -509,26 +503,7 @@ func (r *UpdateHandler) handleAmend(ctx context.Context, storage Storage, messag
 	return nil
 }
 
-func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, message *tg.Message) (err error) {
-	_, origMsg, err := r.findOriginalMessage(ctx, storage, message)
-	if err != nil {
-		return fmt.Errorf("unable to find original message: %w", err)
-	}
-	if origMsg == nil {
-		return nil
-	}
-
-	_, err = r.sendOriginalMessageInfo(ctx, message.Chat.ID, message.MessageID, origMsg)
-	if err != nil {
-		return fmt.Errorf("unable to send original message info: %w", err)
-	}
-
-	return nil
-}
-
-const whyTheFuckMediaTimeout = time.Minute
-
-func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Storage, message *tg.Message) error {
+func (r *UpdateHandler) handleWhyCommand(ctx context.Context, storage Storage, message *tg.Message) error {
 	repeatedMsg, origMsg, err := r.findOriginalMessage(ctx, storage, message)
 	if err != nil {
 		return fmt.Errorf("unable to find original message: %w", err)
@@ -552,19 +527,12 @@ func (r *UpdateHandler) handleWhyTheFuckCommand(ctx context.Context, storage Sto
 		slog.Int("orig_msg_id", origMsg.MessageID),
 	)
 
-	go func() {
-		select {
-		case <-time.After(whyTheFuckMediaTimeout):
-		case <-ctx.Done():
-		}
-		err := r.deleteMessage(ctx, message.Chat.ID, replyID)
-		if err != nil {
-			slog.ErrorContext(ctx, "unable to delete original media", slog.String("err", err.Error()))
-		}
-	}()
+	r.deleteMessageLater(ctx, message.Chat.ID, replyID, whyTimeout)
 
 	return nil
 }
+
+const whyTimeout = time.Minute
 
 const whyNotTimeout = time.Minute
 
@@ -654,16 +622,7 @@ func (r *UpdateHandler) sendWhyNotHit(ctx context.Context, message *tg.Message, 
 		return fmt.Errorf("unable to send hit copy: %w", err)
 	}
 
-	go func() {
-		select {
-		case <-time.After(whyNotTimeout):
-		case <-ctx.Done():
-		}
-		err := r.deleteMessage(ctx, message.Chat.ID, replyID)
-		if err != nil {
-			slog.ErrorContext(ctx, "unable to delete why not hit", slog.String("err", err.Error()))
-		}
-	}()
+	r.deleteMessageLater(ctx, message.Chat.ID, replyID, whyNotTimeout)
 
 	return nil
 }
@@ -711,14 +670,17 @@ func (r *UpdateHandler) formatOriginalMessageInfo(ctx context.Context, msg Messa
 	}
 
 	authorName := strings.TrimSpace(author.FirstName + " " + author.LastName)
-	if authorName == "" {
+	switch {
+	case authorName != "" && author.UserName != "":
+		authorName = fmt.Sprintf("%s (%s)", authorName, author.UserName)
+	case authorName == "":
 		authorName = author.UserName
 	}
 	if authorName == "" {
 		return sentAtText
 	}
 
-	return fmt.Sprintf("%s %s", authorName, sentAtText)
+	return fmt.Sprintf("%s\n%s", authorName, sentAtText)
 }
 
 func (r *UpdateHandler) getMessageAuthor(ctx context.Context, msg Message) *tg.User {
@@ -937,16 +899,7 @@ func (r *UpdateHandler) handleNewVideo(ctx context.Context, storage Storage, mes
 		return &videoHash, &audioHash, fmt.Errorf("unable to send stale meme reply: %w", err)
 	}
 
-	go func() {
-		select {
-		case <-time.After(deleteAutoReplyTimeout):
-		case <-ctx.Done():
-		}
-		err := r.deleteMessage(ctx, message.Chat.ID, replyID)
-		if err != nil {
-			slog.ErrorContext(ctx, "unable to delete reply", slog.String("err", err.Error()))
-		}
-	}()
+	r.deleteMessageLater(ctx, message.Chat.ID, replyID, deleteAutoReplyTimeout)
 
 	return &videoHash, &audioHash, nil
 }
@@ -992,16 +945,7 @@ func (r *UpdateHandler) handleNewPhoto(ctx context.Context, storage Storage, mes
 		return ptr(imgHash.GetHash()), fmt.Errorf("unable to send stale meme reply: %w", err)
 	}
 
-	go func() {
-		select {
-		case <-time.After(deleteAutoReplyTimeout):
-		case <-ctx.Done():
-		}
-		err := r.deleteMessage(ctx, message.Chat.ID, replyID)
-		if err != nil {
-			slog.ErrorContext(ctx, "unable to delete reply", slog.String("err", err.Error()))
-		}
-	}()
+	r.deleteMessageLater(ctx, message.Chat.ID, replyID, deleteAutoReplyTimeout)
 
 	return ptr(imgHash.GetHash()), nil
 }
@@ -1270,4 +1214,20 @@ func (r *UpdateHandler) handleChatSettingsGraceOffset(ctx context.Context, stora
 	}
 
 	return nil
+}
+
+func (r *UpdateHandler) deleteMessageLater(ctx context.Context, chatID int64, messageID int, timeout time.Duration) {
+	go func() {
+		select {
+		case <-time.After(timeout):
+		case <-ctx.Done():
+		}
+		err := r.deleteMessage(ctx, chatID, messageID)
+		if err != nil {
+			slog.ErrorContext(ctx, "unable to delete message",
+				slog.String("err", err.Error()),
+				slog.Int("message_id", messageID),
+			)
+		}
+	}()
 }
